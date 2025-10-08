@@ -185,14 +185,14 @@ class _BBBControllerState extends State<BBBController> {
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   ElevatedButton(
-                    onPressed: () => sendCommand("pin 1"),
+                    onPressed: () => sendCommand("lamps"),
                     child: Text('LED ON'),
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
                   ),
                   ElevatedButton(
-                    onPressed: () => sendCommand("pin 0"),
-                    child: Text('LED OFF'),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                    onPressed: () => sendCommand("status"),
+                    child: Text('STATUS'),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
                   ),
                 ],
               ),
@@ -200,8 +200,8 @@ class _BBBControllerState extends State<BBBController> {
               SizedBox(height: 20),
               
               ElevatedButton(
-                onPressed: () => sendCommand("pin 2"),
-                child: Text('Start Motor'),
+                onPressed: () => sendCommand("ping"),
+                child: Text('PING BBB'),
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
               ),
               
@@ -216,15 +216,15 @@ class _BBBControllerState extends State<BBBController> {
                 divisions: 100,
                 onChanged: (value) {
                   setState(() => pwmValue = value);
-                  sendCommand("pwmb ${value.round()}");
+                  sendCommand("left ${value.round()}");
                 },
               ),
               
               SizedBox(height: 20),
               
               ElevatedButton(
-                onPressed: () => sendCommand("pwma"),
-                child: Text('PWM Demo'),
+                onPressed: () => sendCommand("right 50"),
+                child: Text('RIGHT PWM'),
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
               ),
             ],
