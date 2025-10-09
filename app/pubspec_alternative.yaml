@@ -1,5 +1,5 @@
 name: bbb_controller
-description: Flutter app to control BeagleBone Black via Bluetooth (iOS)
+description: Flutter app to control BeagleBone Black via Bluetooth (iOS) - Alternative version
 
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -19,8 +19,8 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # Bluetooth Low Energy plugin - using stable version
-  flutter_blue_plus: ^1.30.0
+  # Alternative Bluetooth plugin - more stable for newer Flutter versions
+  flutter_bluetooth_serial: ^0.4.0
   
   # Permission handling
   permission_handler: ^11.0.1
