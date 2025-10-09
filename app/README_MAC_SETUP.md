@@ -98,6 +98,32 @@ flutter doctor
 flutter create test_app
 ```
 
+### If you get "flutter_blue_plus_darwin not found" error:
+
+**Option 1: Use updated version (try this first)**
+```bash
+flutter clean
+flutter pub get
+flutter pub deps
+```
+
+**Option 2: Use alternative plugin**
+If the error persists, replace `pubspec.yaml` with `pubspec_alternative.yaml`:
+```bash
+mv pubspec.yaml pubspec_backup.yaml
+mv pubspec_alternative.yaml pubspec.yaml
+flutter clean
+flutter pub get
+```
+
+**Option 3: Force regenerate iOS files**
+```bash
+rm -rf ios/
+flutter create --platforms=ios .
+flutter clean
+flutter pub get
+```
+
 ### If build still fails:
 ```bash
 flutter clean

@@ -34,9 +34,16 @@ else
     exit 1
 fi
 
-# Install dependencies
+# Clean and get dependencies with plugin fix
+echo "🧹 Cleaning Flutter project..."
+flutter clean
+
 echo "📦 Installing Flutter dependencies..."
 flutter pub get
+
+# Force plugin registration update
+echo "🔧 Updating plugin registrations..."
+flutter pub deps
 
 if [ $? -eq 0 ]; then
     echo "✅ Dependencies installed successfully"

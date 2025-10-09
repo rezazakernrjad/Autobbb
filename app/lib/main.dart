@@ -76,44 +76,122 @@ class _BBBControllerState extends State<BBBController> {
 
   Future<void> connectToDevice(BluetoothDevice device) async {
     try {
+      print('🔵 Attempting to connect to: ${device.name}');
+      
       await device.connect(
-        //timeout: const Duration(seconds: 10),
-        autoConnect: true,
-        mtu:null
-        //License: license.free,
+        timeout: const Duration(seconds: 15),
+        autoConnect: false,
       );
+      
+      print('✅ Connected to device: ${device.name}');
+      
       setState(() {
         connectedDevice = device;
         isConnected = true;
       });
 
       // Discover services
+      print('🔍 Discovering services...');
       List<BluetoothService> services = await device.discoverServices();
+      print('📋 Found ${services.length} services');
+      
+      bool serviceFound = false;
+      bool characteristicFound = false;
       
       for (BluetoothService service in services) {
+        print('🔧 Service UUID: ${service.uuid.toString().toUpperCase()}');
+        
         if (service.uuid.toString().toUpperCase() == SERVICE_UUID.toUpperCase()) {
+          print('✅ Found target service!');
+          serviceFound = true;
+          
           for (BluetoothCharacteristic characteristic in service.characteristics) {
+            print('📝 Characteristic UUID: ${characteristic.uuid.toString().toUpperCase()}');
+            
             if (characteristic.uuid.toString().toUpperCase() == RX_UUID.toUpperCase()) {
               rxCharacteristic = characteristic;
+              characteristicFound = true;
+              print('✅ Found RX characteristic!');
+              
+              // Check characteristic properties
+              print('📊 Characteristic properties:');
+              print('   Write: ${characteristic.properties.write}');
+              print('   WriteWithoutResponse: ${characteristic.properties.writeWithoutResponse}');
+              print('   Read: ${characteristic.properties.read}');
+              print('   Notify: ${characteristic.properties.notify}');
+              
               break;
             }
           }
         }
       }
+      
+      if (!serviceFound) {
+        print('❌ Target service not found');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ BBB service not found. Check UUIDs.')),
+        );
+      } else if (!characteristicFound) {
+        print('❌ RX characteristic not found');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ RX characteristic not found')),
+        );
+      } else {
+        print('🎉 Ready to send commands!');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('🎉 Connected and ready!')),
+        );
+      }
+      
     } catch (e) {
-      print('Connection error: $e');
+      print('❌ Connection error: $e');
+      setState(() {
+        isConnected = false;
+        connectedDevice = null;
+        rxCharacteristic = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Connection failed: $e')),
+      );
     }
   }
 
   Future<void> sendCommand(String command) async {
-    if (rxCharacteristic != null) {
-      try {
-        List<int> bytes = utf8.encode(command);
-        await rxCharacteristic!.write(bytes);
-        print('Sent: $command');
-      } catch (e) {
-        print('Send error: $e');
-      }
+    print('🔴 DEBUG: sendCommand called with: $command');
+    print('🔴 DEBUG: isConnected = $isConnected');
+    print('🔴 DEBUG: rxCharacteristic = $rxCharacteristic');
+    
+    if (!isConnected) {
+      print('❌ Not connected to device');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Not connected to BBB')),
+      );
+      return;
+    }
+    
+    if (rxCharacteristic == null) {
+      print('❌ RX Characteristic not found');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Bluetooth characteristic not ready')),
+      );
+      return;
+    }
+    
+    try {
+      List<int> bytes = utf8.encode(command);
+      print('🔵 Sending bytes: $bytes');
+      
+      await rxCharacteristic!.write(bytes, withoutResponse: false);
+      print('✅ Successfully sent: $command');
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('✅ Sent: $command')),
+      );
+    } catch (e) {
+      print('❌ Send error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Send failed: $e')),
+      );
     }
   }
 
