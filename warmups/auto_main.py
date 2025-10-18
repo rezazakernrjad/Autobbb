@@ -37,6 +37,7 @@ pwm.start_pwm()
 bt.lamps_control = pwm.set_pin_9_14
 bt.left_control = pwm.set_pin_8_13
 bt.right_control = pwm.set_pin_8_19
+bt.dance = pwm.dance
 
 print("\n🔍 Current connection analysis:")
 print(f"Connected device found: B0:67:B5:7C:41:CA")
