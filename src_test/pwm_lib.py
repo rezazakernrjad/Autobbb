@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
 Hardcoded PWM Controllers for BeagleBone Black
-Direct control of specific PWM pins: P9_14, P8_13, P8_19
+Direct control of specific PWM pins:
+ P9_14 Lamps/Illumination, 
+ P8_13 Left Wheel, 
+ P8_19 Right Wheel
 Simplified version with dedicated controllers for each pin
 """
 
@@ -19,6 +22,7 @@ class PWMController:
         self.p8_19 = PWMPin("P8_19", chip=1, channel=0)  # PWM1.0
         
         self.pins = [self.p9_14, self.p8_13, self.p8_19]
+        self.wheels = [self.p8_13, self.p8_19]
         self.frequency = 1000  # 1kHz default
         
     def start_all(self, frequency=None):
@@ -35,16 +39,18 @@ class PWMController:
         print(f"✅ {success_count}/{len(self.pins)} pins started")
         return success_count > 0
     
-    def set_p9_14_duty(self, percent):
+    def set_lamps_intensity(self, percent):
         """Set duty cycle for P9_14"""
         return self.p9_14.set_duty_cycle(percent)
     
-    def set_p8_13_duty(self, percent):
+    def set_left_duty(self, percent):
         """Set duty cycle for P8_13"""
+        print("PWM: Setting left duty to", percent)
         return self.p8_13.set_duty_cycle(percent)
     
-    def set_p8_19_duty(self, percent):
+    def set_right_duty(self, percent):
         """Set duty cycle for P8_19"""
+        print("PWM: Setting right duty to", percent)
         return self.p8_19.set_duty_cycle(percent)
     
     def set_all_duty(self, percent):
@@ -54,6 +60,12 @@ class PWMController:
             if pin.is_active and pin.set_duty_cycle(percent):
                 success_count += 1
         return success_count
+    
+    def set_all_wheels_duty(self, percent):
+        """Set same duty cycle for all pins"""
+        print("PWM: Setting all wheels duty to", percent)
+        self.p8_13.set_duty_cycle(percent)
+        self.p8_19.set_duty_cycle(percent)
     
     def stop_all(self):
         """Stop all PWM pins"""
@@ -65,39 +77,31 @@ class PWMController:
         """Get list of active pin names"""
         return [pin.name for pin in self.pins if pin.is_active]
     
-    def set_pin_9_14(self, duration=20, key=""):
+    def illumination(self, duration=20, animation=""):
         """Demo: Control each pin individually"""
-        print(f"\n🎭 Demo: Individual Pin Control ({key})")
+        print(f"\n🎭 Demo: Individual Pin Control ({animation})")
         print("  💡 Fading P9_14...")
-        print("Message ", key)
-        if key == "lamps":
+        print("Message ", animation)
+        if animation == 1:
             steps = 30
             step_time = duration / (steps * 3 * 2)  # 3 pins, fade up and down
-            self.set_p9_14_duty(100)  # Start fully on
+            self.set_lamps_intensity(100)  # Start fully on
+            time.sleep(0.1)
+            self.set_lamps_intensity(0)    # Then off
+            time.sleep(0.1)
+            self.set_lamps_intensity(100)  # Start fully on
+            time.sleep(0.1)
+            self.set_lamps_intensity(0)    # Then off
             time.sleep(0.2)
-            self.set_p9_14_duty(0)    # Then off
-            time.sleep(0.2)
-            self.set_p9_14_duty(100)  # Start fully on
-            time.sleep(0.2)
-            self.set_p9_14_duty(0)    # Then off
-            time.sleep(0.5)
             # P9_14 fade
             for i in range(steps + 1):
                 duty = int(i * 100 / steps)
-                self.set_p9_14_duty(duty)
+                self.set_lamps_intensity(duty)
                 time.sleep(step_time)
             for i in range(steps, -1, -1):
                 duty = int(i * 100 / steps)
-                self.set_p9_14_duty(duty)
+                self.set_lamps_intensity(duty)
                 time.sleep(step_time)
-
-    def set_pin_8_13 (self, side, duty):
-        print("Control PIN8_13", side)
-        self.set_p8_13_duty(duty)
-
-    def set_pin_8_19 (self, side, duty):
-        print("Control PIN8_19", side)
-        self.set_p8_19_duty(duty)
 
     def start_pwm(self):
         try:
