@@ -99,6 +99,30 @@ class PWMController:
         print("Control PIN8_19", side)
         self.set_p8_19_duty(duty)
 
+    def dance(self):
+        try:
+            print("Dance in pwm...")
+            self.set_p8_13_duty(100)
+            time.sleep(0.05)
+            self.set_p8_19_duty(100)
+            time.sleep(0.2)
+            self.set_p8_13_duty(0)
+            time.sleep(0.1)
+            self.set_p8_19_duty(50)
+            time.sleep(0.2)
+            self.set_p8_13_duty(100)
+            time.sleep(0.05)
+            self.set_p8_19_duty(100)
+            time.sleep(0.1)
+            self.set_p8_13_duty(50)
+            time.sleep(0.05)
+            self.set_p8_19_duty(50)
+            time.sleep(0.5)
+            self.set_p8_13_duty(0)
+            time.sleep(0.05)
+            self.set_p8_19_duty(0)
+        except Exception as e:
+            print(f"\n BLE faled: {e}")
     def start_pwm(self):
         try:
             # Start all pins
