@@ -1,7 +1,7 @@
 from periphery import GPIO
 import time
 # P9_12 is gpiochip0, line 28
-P9_12 = GPIO("/dev/gpiochip0", 28, "out")
+P9_12 = GPIO("/dev/gpiochip0", 13, "out")
 try:
     while True:
         # Set the line value to 1 (High)
