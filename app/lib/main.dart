@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:convert';
+import 'dart:async';
 
 void main() {
   runApp(MyApp());
@@ -31,6 +32,11 @@ class _BBBControllerState extends State<BBBController> {
   bool isConnected = false;
   List<BluetoothDevice> devicesList = [];
   double pwmValue = 0;
+  
+  // Bluetooth adapter state
+  BluetoothAdapterState _adapterState = BluetoothAdapterState.unknown;
+  StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
+  bool _isBluetoothReady = false;
 
   // Your BBB UUIDs
   final String SERVICE_UUID = '6E400001-B5A3-F393-E0A9-E50E24DCCA9E';
@@ -39,21 +45,139 @@ class _BBBControllerState extends State<BBBController> {
   @override
   void initState() {
     super.initState();
-    _requestPermissions();
+    _initBluetooth();
   }
 
+  @override
+  void dispose() {
+    _adapterStateSubscription?.cancel();
+    super.dispose();
+  }
+
+Future<void> _initBluetooth() async {
+  print('🔵 Initializing Bluetooth...');
+  
+  // Request permissions first
+  await _requestPermissions();
+  
+  // For iOS/iPadOS, we need to handle the state differently
+  if (Theme.of(context).platform == TargetPlatform.iOS) {
+    print('📱 iOS/iPadOS detected - using iOS-specific Bluetooth initialization');
+    await _initBluetoothIOS();
+  } else {
+    await _initBluetoothAndroid();
+  }
+}
+
+Future<void> _initBluetoothIOS() async {
+  // iOS-specific initialization
+  _adapterStateSubscription = FlutterBluePlus.adapterState.listen((state) {
+    print('🔵 Bluetooth adapter state changed: $state');
+    setState(() {
+      _adapterState = state;
+      _isBluetoothReady = (state == BluetoothAdapterState.on);
+    });
+  });
+
+  // On iOS, we need to check current state and potentially trigger a scan to activate Bluetooth
+  try {
+    // Get the current state
+    BluetoothAdapterState currentState = await FlutterBluePlus.adapterState.first;
+    print('📱 Current Bluetooth state: $currentState');
+    
+    setState(() {
+      _adapterState = currentState;
+    });
+
+    // If Bluetooth is off or unknown, try to start a brief scan to activate it
+    if (currentState != BluetoothAdapterState.on) {
+      print('🔄 Attempting to activate Bluetooth...');
+      
+      // Try to start and immediately stop a scan (this often activates Bluetooth on iOS)
+      try {
+        await FlutterBluePlus.startScan(timeout: Duration(seconds: 1));
+        await Future.delayed(Duration(milliseconds: 100));
+        await FlutterBluePlus.stopScan();
+      } catch (e) {
+        print('⚠️ Scan activation attempt: $e');
+      }
+      
+      // Wait a bit for state to update
+      await Future.delayed(Duration(seconds: 2));
+      
+      // Check state again
+      currentState = await FlutterBluePlus.adapterState.first;
+      print('📱 Bluetooth state after activation attempt: $currentState');
+    }
+    
+    setState(() {
+      _adapterState = currentState;
+      _isBluetoothReady = (currentState == BluetoothAdapterState.on);
+    });
+    
+  } catch (e) {
+    print('❌ iOS Bluetooth initialization error: $e');
+  }
+}
+
+Future<void> _initBluetoothAndroid() async {
+  // Original Android implementation
+  _adapterStateSubscription = FlutterBluePlus.adapterState.listen((state) {
+    print('🔵 Bluetooth adapter state changed: $state');
+    setState(() {
+      _adapterState = state;
+      _isBluetoothReady = (state == BluetoothAdapterState.on);
+    });
+  });
+
+  try {
+    await FlutterBluePlus.adapterState
+        .firstWhere((state) => state != BluetoothAdapterState.unknown)
+        .timeout(
+          Duration(seconds: 5),
+          onTimeout: () {
+            print('⚠️ Timeout waiting for Bluetooth state');
+            return _adapterState;
+          },
+        );
+  } catch (e) {
+    print('❌ Android Bluetooth initialization error: $e');
+  }
+}
+
   Future<void> _requestPermissions() async {
+    print('📋 Requesting Bluetooth permissions...');
     await Permission.bluetooth.request();
     await Permission.bluetoothScan.request();
     await Permission.bluetoothConnect.request();
+    print('✅ Permissions requested');
   }
 
-  Future<void> scanForDevices() async {
-    setState(() {
-      isScanning = true;
-      devicesList.clear();
-    });
+Future<void> scanForDevices() async {
+  print('🔍 scanForDevices called');
+  print('   _adapterState: $_adapterState');
+  print('   _isBluetoothReady: $_isBluetoothReady');
+  
+  // Special handling for iOS when state is unknown
+  if (Theme.of(context).platform == TargetPlatform.iOS && 
+      _adapterState == BluetoothAdapterState.unknown) {
+    print('📱 iOS with unknown state - attempting to proceed with scan');
+    // We'll try to scan anyway as iOS sometimes reports unknown but Bluetooth works
+  }
+  else if (!_isBluetoothReady) {
+    // ... rest of your existing code for non-ready state
+  }
 
+  // Continue with scanning...
+  setState(() {
+    isScanning = true;
+    devicesList.clear();
+  });
+
+  try {
+    print('🔍 Starting BLE scan...');
+    
+    // For iOS, we might need to handle permission prompts during scan
     FlutterBluePlus.startScan(timeout: Duration(seconds: 4));
 
     FlutterBluePlus.scanResults.listen((results) {
@@ -61,6 +185,7 @@ class _BBBControllerState extends State<BBBController> {
         if (result.device.name.isNotEmpty && 
             result.device.name.contains('BBB')) {
           if (!devicesList.contains(result.device)) {
+            print('✅ Found BBB device: ${result.device.name}');
             setState(() {
               devicesList.add(result.device);
             });
@@ -70,9 +195,16 @@ class _BBBControllerState extends State<BBBController> {
     });
 
     await Future.delayed(Duration(seconds: 4));
-    FlutterBluePlus.stopScan();
+    await FlutterBluePlus.stopScan();
+    
+    // ... rest of your existing scan code
+  } catch (e) {
+    print('❌ Scan error: $e');
+    // ... error handling
+  } finally {
     setState(() => isScanning = false);
   }
+}
 
   Future<void> connectToDevice(BluetoothDevice device) async {
     try {
@@ -106,7 +238,7 @@ class _BBBControllerState extends State<BBBController> {
           serviceFound = true;
           
           for (BluetoothCharacteristic characteristic in service.characteristics) {
-            print('📝 Characteristic UUID: ${characteristic.uuid.toString().toUpperCase()}');
+            print('🔍 Characteristic UUID: ${characteristic.uuid.toString().toUpperCase()}');
             
             if (characteristic.uuid.toString().toUpperCase() == RX_UUID.toUpperCase()) {
               rxCharacteristic = characteristic;
@@ -195,6 +327,36 @@ class _BBBControllerState extends State<BBBController> {
     }
   }
 
+  String _getBluetoothStateMessage() {
+    switch (_adapterState) {
+      case BluetoothAdapterState.on:
+        return 'Bluetooth is ON';
+      case BluetoothAdapterState.off:
+        return 'Bluetooth is OFF - Please enable in Settings';
+      case BluetoothAdapterState.unavailable:
+        return 'Bluetooth unavailable on this device';
+      case BluetoothAdapterState.unauthorized:
+        return 'Bluetooth permission denied';
+      case BluetoothAdapterState.unknown:
+      default:
+        return 'Initializing Bluetooth...';
+    }
+  }
+
+  Color _getBluetoothStateColor() {
+    switch (_adapterState) {
+      case BluetoothAdapterState.on:
+        return Colors.green[100]!;
+      case BluetoothAdapterState.off:
+      case BluetoothAdapterState.unavailable:
+      case BluetoothAdapterState.unauthorized:
+        return Colors.orange[100]!;
+      case BluetoothAdapterState.unknown:
+      default:
+        return Colors.blue[100]!;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -206,6 +368,33 @@ class _BBBControllerState extends State<BBBController> {
         padding: EdgeInsets.all(16.0),
         child: Column(
           children: [
+            // Bluetooth Status Banner
+            Container(
+              padding: EdgeInsets.all(16),
+              margin: EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: _getBluetoothStateColor(),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _isBluetoothReady 
+                        ? Icons.bluetooth 
+                        : Icons.bluetooth_disabled,
+                    color: _isBluetoothReady ? Colors.green : Colors.orange,
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _getBluetoothStateMessage(),
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
             // Connection Status
             Container(
               padding: EdgeInsets.all(16),
@@ -233,20 +422,31 @@ class _BBBControllerState extends State<BBBController> {
             // Scan Button
             if (!isConnected) ...[
               ElevatedButton(
-                onPressed: isScanning ? null : scanForDevices,
+                onPressed: (isScanning || !_isBluetoothReady) ? null : scanForDevices,
                 child: Text(isScanning ? 'Scanning...' : 'Scan for BBB'),
               ),
+              
+              if (!_isBluetoothReady && _adapterState != BluetoothAdapterState.on)
+                Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Waiting for Bluetooth...',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ),
               
               // Device List
               if (devicesList.isNotEmpty)
                 Container(
                   height: 100,
+                  margin: EdgeInsets.only(top: 16),
                   child: ListView.builder(
                     itemCount: devicesList.length,
                     itemBuilder: (context, index) {
                       return ListTile(
                         title: Text(devicesList[index].name),
                         subtitle: Text(devicesList[index].id.toString()),
+                        trailing: Icon(Icons.chevron_right),
                         onTap: () => connectToDevice(devicesList[index]),
                       );
                     },
@@ -263,8 +463,8 @@ class _BBBControllerState extends State<BBBController> {
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   ElevatedButton(
-                    onPressed: () => sendCommand("lamps"),
-                    child: Text('LED ON'),
+                    onPressed: () => sendCommand("turn_left 2"),
+                    child: Text('Turn Left'),
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
                   ),
                   ElevatedButton(
@@ -285,7 +485,7 @@ class _BBBControllerState extends State<BBBController> {
               
               SizedBox(height: 20),
               
-              Text('PWM Control: ${pwmValue.round()}%', 
+              Text('Forward: ${pwmValue.round()}%', 
                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               Slider(
                 value: pwmValue,
@@ -294,16 +494,16 @@ class _BBBControllerState extends State<BBBController> {
                 divisions: 100,
                 onChanged: (value) {
                   setState(() => pwmValue = value);
-                  sendCommand("left ${value.round()}");
+                  sendCommand("forward ${value.round()}");
                 },
               ),
               
               SizedBox(height: 20),
               
               ElevatedButton(
-                onPressed: () => sendCommand("right 50"),
+                onPressed: () => sendCommand("turn_right 5"),
                 child: Text('RIGHT PWM'),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
+                style: ElevatedButton.styleFrom(backgroundColor: const Color.fromARGB(255, 192, 143, 201)),
               ),
             ],
           ],
