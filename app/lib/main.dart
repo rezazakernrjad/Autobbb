@@ -25,20 +25,18 @@ class BBBController extends StatefulWidget {
 }
 
 class _BBBControllerState extends State<BBBController> {
-  // BLE Variables
   BluetoothDevice? connectedDevice;
   BluetoothCharacteristic? rxCharacteristic;
   bool isScanning = false;
   bool isConnected = false;
   List<BluetoothDevice> devicesList = [];
   double pwmValue = 0;
-  
-  // Bluetooth adapter state
+  double turnValue = 0;
+
   BluetoothAdapterState _adapterState = BluetoothAdapterState.unknown;
   StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
   bool _isBluetoothReady = false;
 
-  // Your BBB UUIDs
   final String SERVICE_UUID = '6E400001-B5A3-F393-E0A9-E50E24DCCA9E';
   final String RX_UUID = '6E400002-B5A3-F393-E0A9-E50E24DCCA9E';
 
@@ -54,178 +52,116 @@ class _BBBControllerState extends State<BBBController> {
     super.dispose();
   }
 
-Future<void> _initBluetooth() async {
-  print('🔵 Initializing Bluetooth...');
-  
-  // Request permissions first
-  await _requestPermissions();
-  
-  // For iOS/iPadOS, we need to handle the state differently
-  if (Theme.of(context).platform == TargetPlatform.iOS) {
-    print('📱 iOS/iPadOS detected - using iOS-specific Bluetooth initialization');
-    await _initBluetoothIOS();
-  } else {
-    await _initBluetoothAndroid();
-  }
-}
-
-Future<void> _initBluetoothIOS() async {
-  // iOS-specific initialization
-  _adapterStateSubscription = FlutterBluePlus.adapterState.listen((state) {
-    print('🔵 Bluetooth adapter state changed: $state');
-    setState(() {
-      _adapterState = state;
-      _isBluetoothReady = (state == BluetoothAdapterState.on);
-    });
-  });
-
-  // On iOS, we need to check current state and potentially trigger a scan to activate Bluetooth
-  try {
-    // Get the current state
-    BluetoothAdapterState currentState = await FlutterBluePlus.adapterState.first;
-    print('📱 Current Bluetooth state: $currentState');
+  Future<void> _initBluetooth() async {
+    print('🔵 Initializing Bluetooth...');
+    await _requestPermissions();
     
-    setState(() {
-      _adapterState = currentState;
+    _adapterStateSubscription = FlutterBluePlus.adapterState.listen((state) {
+      print('🔵 Bluetooth adapter state changed: $state');
+      setState(() {
+        _adapterState = state;
+        _isBluetoothReady = (state == BluetoothAdapterState.on);
+      });
     });
 
-    // If Bluetooth is off or unknown, try to start a brief scan to activate it
-    if (currentState != BluetoothAdapterState.on) {
-      print('🔄 Attempting to activate Bluetooth...');
-      
-      // Try to start and immediately stop a scan (this often activates Bluetooth on iOS)
-      try {
-        await FlutterBluePlus.startScan(timeout: Duration(seconds: 1));
-        await Future.delayed(Duration(milliseconds: 100));
-        await FlutterBluePlus.stopScan();
-      } catch (e) {
-        print('⚠️ Scan activation attempt: $e');
-      }
-      
-      // Wait a bit for state to update
-      await Future.delayed(Duration(seconds: 2));
-      
-      // Check state again
-      currentState = await FlutterBluePlus.adapterState.first;
-      print('📱 Bluetooth state after activation attempt: $currentState');
+    // Special handling for iOS
+    if (Theme.of(context).platform == TargetPlatform.iOS) {
+      await _initBluetoothIOS();
     }
-    
-    setState(() {
-      _adapterState = currentState;
-      _isBluetoothReady = (currentState == BluetoothAdapterState.on);
-    });
-    
-  } catch (e) {
-    print('❌ iOS Bluetooth initialization error: $e');
   }
-}
 
-Future<void> _initBluetoothAndroid() async {
-  // Original Android implementation
-  _adapterStateSubscription = FlutterBluePlus.adapterState.listen((state) {
-    print('🔵 Bluetooth adapter state changed: $state');
-    setState(() {
-      _adapterState = state;
-      _isBluetoothReady = (state == BluetoothAdapterState.on);
-    });
-  });
-
-  try {
-    await FlutterBluePlus.adapterState
-        .firstWhere((state) => state != BluetoothAdapterState.unknown)
-        .timeout(
-          Duration(seconds: 5),
-          onTimeout: () {
-            print('⚠️ Timeout waiting for Bluetooth state');
-            return _adapterState;
-          },
-        );
-  } catch (e) {
-    print('❌ Android Bluetooth initialization error: $e');
+  Future<void> _initBluetoothIOS() async {
+    print('📱 iOS/iPadOS Bluetooth initialization');
+    try {
+      // Wait a bit for iOS Bluetooth to initialize
+      await Future.delayed(Duration(seconds: 2));
+    } catch (e) {
+      print('❌ iOS Bluetooth init error: $e');
+    }
   }
-}
 
   Future<void> _requestPermissions() async {
-    print('📋 Requesting Bluetooth permissions...');
+    print('📋 Requesting permissions...');
     await Permission.bluetooth.request();
     await Permission.bluetoothScan.request();
     await Permission.bluetoothConnect.request();
+    await Permission.locationWhenInUse.request(); // Important for iOS
     print('✅ Permissions requested');
   }
 
-Future<void> scanForDevices() async {
-  print('🔍 scanForDevices called');
-  print('   _adapterState: $_adapterState');
-  print('   _isBluetoothReady: $_isBluetoothReady');
-  
-  // Special handling for iOS when state is unknown
-  if (Theme.of(context).platform == TargetPlatform.iOS && 
-      _adapterState == BluetoothAdapterState.unknown) {
-    print('📱 iOS with unknown state - attempting to proceed with scan');
-    // We'll try to scan anyway as iOS sometimes reports unknown but Bluetooth works
-  }
-  else if (!_isBluetoothReady) {
-    // ... rest of your existing code for non-ready state
-  }
-
-  // Continue with scanning...
-  setState(() {
-    isScanning = true;
-    devicesList.clear();
-  });
-
-  try {
-    print('🔍 Starting BLE scan...');
+  Future<void> scanForDevices() async {
+    if (isScanning) return;
     
-    // For iOS, we might need to handle permission prompts during scan
-    FlutterBluePlus.startScan(timeout: Duration(seconds: 4));
-
-    FlutterBluePlus.scanResults.listen((results) {
-      for (ScanResult result in results) {
-        if (result.device.name.isNotEmpty && 
-            result.device.name.contains('BBB')) {
-          if (!devicesList.contains(result.device)) {
-            print('✅ Found BBB device: ${result.device.name}');
-            setState(() {
-              devicesList.add(result.device);
-            });
-          }
-        }
-      }
+    setState(() {
+      isScanning = true;
+      devicesList.clear();
     });
 
-    await Future.delayed(Duration(seconds: 4));
-    await FlutterBluePlus.stopScan();
-    
-    // ... rest of your existing scan code
-  } catch (e) {
-    print('❌ Scan error: $e');
-    // ... error handling
-  } finally {
-    setState(() => isScanning = false);
+    try {
+      print('🔍 Starting BLE scan...');
+      await FlutterBluePlus.startScan(timeout: Duration(seconds: 6));
+
+      FlutterBluePlus.scanResults.listen((results) {
+        for (ScanResult result in results) {
+          // Only look for Auto BBB devices
+          if (result.device.name.isNotEmpty && 
+              result.device.name.toLowerCase().contains('bbb')) {
+            if (!devicesList.any((d) => d.id == result.device.id)) {
+              print('✅ Found Auto BBB device: ${result.device.name}');
+              setState(() {
+                devicesList.add(result.device);
+              });
+            }
+          }
+        }
+      });
+
+      await Future.delayed(Duration(seconds: 6));
+      await FlutterBluePlus.stopScan();
+      
+      if (devicesList.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No Auto BBB devices found. Ensure device is on and nearby.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Found ${devicesList.length} Auto BBB device(s)'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      
+    } catch (e) {
+      print('❌ Scan error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Scan failed: $e')),
+      );
+    } finally {
+      setState(() => isScanning = false);
+    }
   }
-}
 
   Future<void> connectToDevice(BluetoothDevice device) async {
     try {
-      print('🔵 Attempting to connect to: ${device.name}');
+      print('🔵 Connecting to: ${device.name}');
       
+      // FIX: Remove autoConnect to avoid MTU conflict
       await device.connect(
-        timeout: const Duration(seconds: 15),
-        autoConnect: false,
+        timeout: Duration(seconds: 15),
+        // autoConnect: true, // REMOVED - causes MTU conflict
       );
-      
-      print('✅ Connected to device: ${device.name}');
       
       setState(() {
         connectedDevice = device;
         isConnected = true;
       });
 
-      // Discover services
       print('🔍 Discovering services...');
       List<BluetoothService> services = await device.discoverServices();
-      print('📋 Found ${services.length} services');
       
       bool serviceFound = false;
       bool characteristicFound = false;
@@ -234,8 +170,8 @@ Future<void> scanForDevices() async {
         print('🔧 Service UUID: ${service.uuid.toString().toUpperCase()}');
         
         if (service.uuid.toString().toUpperCase() == SERVICE_UUID.toUpperCase()) {
-          print('✅ Found target service!');
           serviceFound = true;
+          print('✅ Found BBB service');
           
           for (BluetoothCharacteristic characteristic in service.characteristics) {
             print('🔍 Characteristic UUID: ${characteristic.uuid.toString().toUpperCase()}');
@@ -243,9 +179,9 @@ Future<void> scanForDevices() async {
             if (characteristic.uuid.toString().toUpperCase() == RX_UUID.toUpperCase()) {
               rxCharacteristic = characteristic;
               characteristicFound = true;
-              print('✅ Found RX characteristic!');
+              print('✅ Found RX characteristic');
               
-              // Check characteristic properties
+              // Print characteristic properties for debugging
               print('📊 Characteristic properties:');
               print('   Write: ${characteristic.properties.write}');
               print('   WriteWithoutResponse: ${characteristic.properties.writeWithoutResponse}');
@@ -255,6 +191,7 @@ Future<void> scanForDevices() async {
               break;
             }
           }
+          break;
         }
       }
       
@@ -263,57 +200,51 @@ Future<void> scanForDevices() async {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('❌ BBB service not found. Check UUIDs.')),
         );
+        await _disconnect();
       } else if (!characteristicFound) {
         print('❌ RX characteristic not found');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('❌ RX characteristic not found')),
         );
+        await _disconnect();
       } else {
         print('🎉 Ready to send commands!');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('🎉 Connected and ready!')),
+          SnackBar(content: Text('🎉 Connected to Auto BBB!')),
         );
       }
       
     } catch (e) {
       print('❌ Connection error: $e');
-      setState(() {
-        isConnected = false;
-        connectedDevice = null;
-        rxCharacteristic = null;
-      });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('❌ Connection failed: $e')),
+        SnackBar(content: Text('Connection failed: $e')),
       );
+      await _disconnect();
     }
   }
 
   Future<void> sendCommand(String command) async {
-    print('🔴 DEBUG: sendCommand called with: $command');
-    print('🔴 DEBUG: isConnected = $isConnected');
-    print('🔴 DEBUG: rxCharacteristic = $rxCharacteristic');
-    
-    if (!isConnected) {
-      print('❌ Not connected to device');
+    if (!isConnected || rxCharacteristic == null) {
+      print('❌ Not connected or characteristic not ready');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('❌ Not connected to BBB')),
-      );
-      return;
-    }
-    
-    if (rxCharacteristic == null) {
-      print('❌ RX Characteristic not found');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('❌ Bluetooth characteristic not ready')),
+        SnackBar(content: Text('❌ Not connected to Auto BBB')),
       );
       return;
     }
     
     try {
       List<int> bytes = utf8.encode(command);
-      print('🔵 Sending bytes: $bytes');
+      print('🔵 Sending command: "$command" as bytes: $bytes');
       
-      await rxCharacteristic!.write(bytes, withoutResponse: false);
+      // Try with response first, fallback to without response
+      if (rxCharacteristic!.properties.write) {
+        await rxCharacteristic!.write(bytes, withoutResponse: false);
+      } else if (rxCharacteristic!.properties.writeWithoutResponse) {
+        await rxCharacteristic!.write(bytes, withoutResponse: true);
+      } else {
+        throw Exception('Characteristic does not support write operations');
+      }
+      
       print('✅ Successfully sent: $command');
       
       ScaffoldMessenger.of(context).showSnackBar(
@@ -327,33 +258,39 @@ Future<void> scanForDevices() async {
     }
   }
 
+  Future<void> _disconnect() async {
+    try {
+      if (connectedDevice != null) {
+        await connectedDevice!.disconnect();
+      }
+    } catch (e) {
+      print('⚠️ Disconnect error: $e');
+    } finally {
+      setState(() {
+        isConnected = false;
+        connectedDevice = null;
+        rxCharacteristic = null;
+        pwmValue = 0;
+        turnValue = 0;
+        devicesList.clear();
+      });
+    }
+  }
+
   String _getBluetoothStateMessage() {
     switch (_adapterState) {
-      case BluetoothAdapterState.on:
-        return 'Bluetooth is ON';
-      case BluetoothAdapterState.off:
-        return 'Bluetooth is OFF - Please enable in Settings';
-      case BluetoothAdapterState.unavailable:
-        return 'Bluetooth unavailable on this device';
-      case BluetoothAdapterState.unauthorized:
-        return 'Bluetooth permission denied';
-      case BluetoothAdapterState.unknown:
-      default:
-        return 'Initializing Bluetooth...';
+      case BluetoothAdapterState.on: return 'Bluetooth is ON - Ready to scan';
+      case BluetoothAdapterState.off: return 'Bluetooth is OFF - Please enable in Settings';
+      case BluetoothAdapterState.unknown: return 'Bluetooth Initializing...';
+      default: return 'Bluetooth Status';
     }
   }
 
   Color _getBluetoothStateColor() {
     switch (_adapterState) {
-      case BluetoothAdapterState.on:
-        return Colors.green[100]!;
-      case BluetoothAdapterState.off:
-      case BluetoothAdapterState.unavailable:
-      case BluetoothAdapterState.unauthorized:
-        return Colors.orange[100]!;
-      case BluetoothAdapterState.unknown:
-      default:
-        return Colors.blue[100]!;
+      case BluetoothAdapterState.on: return Colors.green[100]!;
+      case BluetoothAdapterState.off: return Colors.orange[100]!;
+      default: return Colors.blue[100]!;
     }
   }
 
@@ -361,8 +298,16 @@ Future<void> scanForDevices() async {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('BBB Controller'),
+        title: Text('Auto BBB Controller'),
         backgroundColor: Colors.blue,
+        actions: [
+          if (isConnected)
+            IconButton(
+              icon: Icon(Icons.bluetooth_disabled),
+              onPressed: _disconnect,
+              tooltip: 'Disconnect',
+            ),
+        ],
       ),
       body: Padding(
         padding: EdgeInsets.all(16.0),
@@ -410,7 +355,7 @@ Future<void> scanForDevices() async {
                   ),
                   SizedBox(width: 8),
                   Text(
-                    isConnected ? 'Connected to BBB' : 'Not Connected',
+                    isConnected ? 'Connected to Auto BBB' : 'Not Connected to Auto BBB',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ],
@@ -422,70 +367,80 @@ Future<void> scanForDevices() async {
             // Scan Button
             if (!isConnected) ...[
               ElevatedButton(
-                onPressed: (isScanning || !_isBluetoothReady) ? null : scanForDevices,
-                child: Text(isScanning ? 'Scanning...' : 'Scan for BBB'),
+                onPressed: isScanning ? null : scanForDevices,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (isScanning) 
+                      SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    SizedBox(width: 8),
+                    Text(isScanning ? 'Scanning...' : 'Scan for Auto BBB'),
+                  ],
+                ),
               ),
               
-              if (!_isBluetoothReady && _adapterState != BluetoothAdapterState.on)
-                Padding(
-                  padding: EdgeInsets.only(top: 8),
-                  child: Text(
-                    'Waiting for Bluetooth...',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
+              SizedBox(height: 8),
+              
+              if (_adapterState == BluetoothAdapterState.unknown && 
+                  Theme.of(context).platform == TargetPlatform.iOS)
+                Text(
+                  'On iOS, you can try scanning even if Bluetooth shows "Initializing"',
+                  style: TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic),
+                  textAlign: TextAlign.center,
                 ),
               
               // Device List
               if (devicesList.isNotEmpty)
-                Container(
-                  height: 100,
-                  margin: EdgeInsets.only(top: 16),
-                  child: ListView.builder(
-                    itemCount: devicesList.length,
-                    itemBuilder: (context, index) {
-                      return ListTile(
-                        title: Text(devicesList[index].name),
-                        subtitle: Text(devicesList[index].id.toString()),
-                        trailing: Icon(Icons.chevron_right),
-                        onTap: () => connectToDevice(devicesList[index]),
-                      );
-                    },
+                Expanded(
+                  child: Container(
+                    margin: EdgeInsets.only(top: 16),
+                    child: Column(
+                      children: [
+                        Text(
+                          'Found Auto BBB Devices:',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        SizedBox(height: 8),
+                        Expanded(
+                          child: ListView.builder(
+                            itemCount: devicesList.length,
+                            itemBuilder: (context, index) {
+                              return Card(
+                                margin: EdgeInsets.symmetric(vertical: 4),
+                                child: ListTile(
+                                  leading: Icon(Icons.bluetooth, color: Colors.blue),
+                                  title: Text(
+                                    devicesList[index].name.isEmpty 
+                                        ? 'Auto BBB Device' 
+                                        : devicesList[index].name,
+                                    style: TextStyle(fontWeight: FontWeight.bold),
+                                  ),
+                                  subtitle: Text('Tap to connect'),
+                                  trailing: Icon(Icons.chevron_right, color: Colors.blue),
+                                  onTap: () => connectToDevice(devicesList[index]),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
             ],
             
             // Control Buttons (only show when connected)
             if (isConnected) ...[
-              Text('LED Control', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              SizedBox(height: 10),
-              
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  ElevatedButton(
-                    onPressed: () => sendCommand("turn_left 2"),
-                    child: Text('Turn Left'),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                  ),
-                  ElevatedButton(
-                    onPressed: () => sendCommand("status"),
-                    child: Text('STATUS'),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-                  ),
-                ],
-              ),
-              
+              SizedBox(height: 20),
+              Text('Auto BBB Motor Control', 
+                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue)),
               SizedBox(height: 20),
               
-              ElevatedButton(
-                onPressed: () => sendCommand("ping"),
-                child: Text('PING BBB'),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-              ),
-              
-              SizedBox(height: 20),
-              
-              Text('Forward: ${pwmValue.round()}%', 
+              Text('Forward Speed: ${pwmValue.round()}%', 
                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               Slider(
                 value: pwmValue,
@@ -497,13 +452,64 @@ Future<void> scanForDevices() async {
                   sendCommand("forward ${value.round()}");
                 },
               ),
+
+              SizedBox(height: 30),
               
+              Text('Turning: ${turnValue.round()}%', 
+                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              Slider(
+                value: turnValue,
+                min: -100,
+                max: 100,
+                divisions: 200,
+                onChanged: (value) {
+                  setState(() => turnValue = value);
+                  if (value < 0) {
+                    sendCommand("turn_left ${(-value).round()}");
+                  } else if (value > 0) {
+                    sendCommand("turn_right ${value.round()}");
+                  } else {
+                    sendCommand("turn_stop");
+                  }
+                },
+              ),
+              
+              SizedBox(height: 30),
+              
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  ElevatedButton(
+                    onPressed: () => sendCommand("stop"),
+                    child: Text('STOP', style: TextStyle(fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => sendCommand("status"),
+                    child: Text('STATUS', style: TextStyle(fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                    ),
+                  ),
+                ],
+              ),
+
               SizedBox(height: 20),
               
               ElevatedButton(
-                onPressed: () => sendCommand("turn_right 5"),
-                child: Text('RIGHT PWM'),
-                style: ElevatedButton.styleFrom(backgroundColor: const Color.fromARGB(255, 192, 143, 201)),
+                onPressed: _disconnect,
+                child: Text('DISCONNECT FROM BBB', style: TextStyle(fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                ),
               ),
             ],
           ],
