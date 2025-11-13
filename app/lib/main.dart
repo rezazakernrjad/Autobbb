@@ -29,6 +29,7 @@ class _BBBControllerState extends State<BBBController> {
   BluetoothCharacteristic? rxCharacteristic;
   bool isScanning = false;
   bool isConnected = false;
+  bool isConnecting = false;
   List<BluetoothDevice> devicesList = [];
   double pwmValue = 0;
   double turnValue = 0;
@@ -36,6 +37,8 @@ class _BBBControllerState extends State<BBBController> {
   BluetoothAdapterState _adapterState = BluetoothAdapterState.unknown;
   StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
   bool _isBluetoothReady = false;
+  
+  int _mtu = 23; // Default BLE MTU
 
   final String SERVICE_UUID = '6E400001-B5A3-F393-E0A9-E50E24DCCA9E';
   final String RX_UUID = '6E400002-B5A3-F393-E0A9-E50E24DCCA9E';
@@ -64,7 +67,6 @@ class _BBBControllerState extends State<BBBController> {
       });
     });
 
-    // Special handling for iOS
     if (Theme.of(context).platform == TargetPlatform.iOS) {
       await _initBluetoothIOS();
     }
@@ -73,7 +75,6 @@ class _BBBControllerState extends State<BBBController> {
   Future<void> _initBluetoothIOS() async {
     print('📱 iOS/iPadOS Bluetooth initialization');
     try {
-      // Wait a bit for iOS Bluetooth to initialize
       await Future.delayed(Duration(seconds: 2));
     } catch (e) {
       print('❌ iOS Bluetooth init error: $e');
@@ -85,7 +86,7 @@ class _BBBControllerState extends State<BBBController> {
     await Permission.bluetooth.request();
     await Permission.bluetoothScan.request();
     await Permission.bluetoothConnect.request();
-    await Permission.locationWhenInUse.request(); // Important for iOS
+    await Permission.locationWhenInUse.request();
     print('✅ Permissions requested');
   }
 
@@ -103,7 +104,6 @@ class _BBBControllerState extends State<BBBController> {
 
       FlutterBluePlus.scanResults.listen((results) {
         for (ScanResult result in results) {
-          // Only look for Auto BBB devices
           if (result.device.name.isNotEmpty && 
               result.device.name.toLowerCase().contains('bbb')) {
             if (!devicesList.any((d) => d.id == result.device.id)) {
@@ -146,115 +146,239 @@ class _BBBControllerState extends State<BBBController> {
   }
 
   Future<void> connectToDevice(BluetoothDevice device) async {
+    if (isConnecting) return;
+    
+    setState(() {
+      isConnecting = true;
+    });
+
     try {
       print('🔵 Connecting to: ${device.name}');
       
-      // FIX: Remove autoConnect to avoid MTU conflict
-      await device.connect(
-        timeout: Duration(seconds: 15),
-        // autoConnect: true, // REMOVED - causes MTU conflict
-      );
+      // Disconnect first if already connected to another device
+      if (connectedDevice != null && connectedDevice != device) {
+        await _disconnect();
+      }
+      
+      await device.connect(timeout: Duration(seconds: 15));
+      
+      print('✅ Connected to device');
       
       setState(() {
         connectedDevice = device;
         isConnected = true;
+        isConnecting = false;
       });
 
-      print('🔍 Discovering services...');
-      List<BluetoothService> services = await device.discoverServices();
-      
-      bool serviceFound = false;
-      bool characteristicFound = false;
-      
-      for (BluetoothService service in services) {
-        print('🔧 Service UUID: ${service.uuid.toString().toUpperCase()}');
+      // Request MTU increase (important for iOS)
+      try {
+        print('📶 Requesting MTU...');
+        final mtu = await device.mtu.first;
+        print('📶 Current MTU: $mtu');
         
-        if (service.uuid.toString().toUpperCase() == SERVICE_UUID.toUpperCase()) {
-          serviceFound = true;
-          print('✅ Found BBB service');
-          
-          for (BluetoothCharacteristic characteristic in service.characteristics) {
-            print('🔍 Characteristic UUID: ${characteristic.uuid.toString().toUpperCase()}');
-            
-            if (characteristic.uuid.toString().toUpperCase() == RX_UUID.toUpperCase()) {
-              rxCharacteristic = characteristic;
-              characteristicFound = true;
-              print('✅ Found RX characteristic');
-              
-              // Print characteristic properties for debugging
-              print('📊 Characteristic properties:');
-              print('   Write: ${characteristic.properties.write}');
-              print('   WriteWithoutResponse: ${characteristic.properties.writeWithoutResponse}');
-              print('   Read: ${characteristic.properties.read}');
-              print('   Notify: ${characteristic.properties.notify}');
-              
-              break;
-            }
-          }
-          break;
-        }
+        // Try to increase MTU
+        await device.requestMtu(512);
+        final newMtu = await device.mtu.first;
+        setState(() {
+          _mtu = newMtu;
+        });
+        print('📶 New MTU: $newMtu');
+      } catch (e) {
+        print('⚠️ MTU request failed: $e');
       }
-      
-      if (!serviceFound) {
-        print('❌ Target service not found');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('❌ BBB service not found. Check UUIDs.')),
-        );
-        await _disconnect();
-      } else if (!characteristicFound) {
-        print('❌ RX characteristic not found');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('❌ RX characteristic not found')),
-        );
-        await _disconnect();
-      } else {
-        print('🎉 Ready to send commands!');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('🎉 Connected to Auto BBB!')),
-        );
-      }
+
+      // Discover services with retry
+      await _discoverServicesWithRetry(device);
       
     } catch (e) {
       print('❌ Connection error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Connection failed: $e')),
       );
+      setState(() {
+        isConnecting = false;
+      });
       await _disconnect();
+    }
+  }
+
+  Future<void> _discoverServicesWithRetry(BluetoothDevice device) async {
+    int retries = 3;
+    
+    for (int i = 0; i < retries; i++) {
+      try {
+        print('🔎 Discovering services (attempt ${i + 1}/$retries)...');
+        List<BluetoothService> services = await device.discoverServices();
+        print('📋 Found ${services.length} services');
+        
+        bool serviceFound = false;
+        bool characteristicFound = false;
+        
+        for (BluetoothService service in services) {
+          print('🔧 Service UUID: ${service.uuid.toString().toUpperCase()}');
+          
+          if (service.uuid.toString().toUpperCase() == SERVICE_UUID.toUpperCase()) {
+            serviceFound = true;
+            print('✅ Found target service!');
+            
+            for (BluetoothCharacteristic characteristic in service.characteristics) {
+              print('🔍 Characteristic UUID: ${characteristic.uuid.toString().toUpperCase()}');
+              
+              if (characteristic.uuid.toString().toUpperCase() == RX_UUID.toUpperCase()) {
+                rxCharacteristic = characteristic;
+                characteristicFound = true;
+                print('✅ Found RX characteristic!');
+                
+                // Print characteristic properties
+                print('📊 Characteristic properties:');
+                print('   Write: ${characteristic.properties.write}');
+                print('   WriteWithoutResponse: ${characteristic.properties.writeWithoutResponse}');
+                print('   Notify: ${characteristic.properties.notify}');
+                print('   Read: ${characteristic.properties.read}');
+                
+                break;
+              }
+            }
+            break;
+          }
+        }
+        
+        if (!serviceFound) {
+          print('❌ Target service not found');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('❌ BBB service not found. Check UUIDs.')),
+          );
+          await _disconnect();
+          return;
+        } else if (!characteristicFound) {
+          print('❌ RX characteristic not found');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('❌ RX characteristic not found')),
+          );
+          await _disconnect();
+          return;
+        } else {
+          // Add delay for iOS stability
+          print('⏳ Waiting for connection to stabilize...');
+          await Future.delayed(Duration(milliseconds: 500));
+          
+          print('🎉 Ready to send commands!');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('🎉 Connected and ready!')),
+          );
+          return; // Success
+        }
+      } catch (e) {
+        print('❌ Service discovery error (attempt ${i + 1}): $e');
+        if (i < retries - 1) {
+          print('🔄 Retrying service discovery...');
+          await Future.delayed(Duration(seconds: 1));
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('❌ Service discovery failed after $retries attempts')),
+          );
+          await _disconnect();
+        }
+      }
     }
   }
 
   Future<void> sendCommand(String command) async {
     if (!isConnected || rxCharacteristic == null) {
-      print('❌ Not connected or characteristic not ready');
+      print('❌ Cannot send: Not connected or no RX characteristic');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('❌ Not connected to Auto BBB')),
+        SnackBar(content: Text('❌ Not connected to device')),
       );
       return;
     }
     
     try {
-      List<int> bytes = utf8.encode(command);
-      print('🔵 Sending command: "$command" as bytes: $bytes');
+      // Format command - try newline terminator (most common for UART)
+      String formattedCommand = command + '\n';
+      List<int> bytes = utf8.encode(formattedCommand);
       
-      // Try with response first, fallback to without response
-      if (rxCharacteristic!.properties.write) {
-        await rxCharacteristic!.write(bytes, withoutResponse: false);
-      } else if (rxCharacteristic!.properties.writeWithoutResponse) {
-        await rxCharacteristic!.write(bytes, withoutResponse: true);
-      } else {
-        throw Exception('Characteristic does not support write operations');
+      print('📤 Sending command: "$command"');
+      print('📤 Bytes: $bytes (length: ${bytes.length})');
+      print('📤 MTU: $_mtu');
+      
+      // Check if command fits in MTU (leave 3 bytes for ATT overhead)
+      if (bytes.length > (_mtu - 3)) {
+        print('⚠️ Command too long for MTU!');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('⚠️ Command too long')),
+        );
+        return;
       }
       
-      print('✅ Successfully sent: $command');
+      // CRITICAL: Use writeWithoutResponse and add delay for iOS BLE
+      // iOS needs time between writes, and BBB might need writeWithoutResponse
+      if (rxCharacteristic!.properties.writeWithoutResponse) {
+        try {
+          print('📝 Writing WITHOUT response (iOS/BBB compatible mode)...');
+          
+          // Split into smaller chunks if needed (max 20 bytes for compatibility)
+          const int maxChunkSize = 20;
+          
+          if (bytes.length <= maxChunkSize) {
+            // Send in one go
+            await rxCharacteristic!.write(bytes, withoutResponse: true);
+            print('✅ Sent ${bytes.length} bytes');
+          } else {
+            // Send in chunks
+            print('📦 Splitting into chunks...');
+            for (int i = 0; i < bytes.length; i += maxChunkSize) {
+              int end = (i + maxChunkSize < bytes.length) ? i + maxChunkSize : bytes.length;
+              List<int> chunk = bytes.sublist(i, end);
+              
+              await rxCharacteristic!.write(chunk, withoutResponse: true);
+              print('✅ Sent chunk ${(i / maxChunkSize).floor() + 1}: ${chunk.length} bytes');
+              
+              // Small delay between chunks
+              if (end < bytes.length) {
+                await Future.delayed(Duration(milliseconds: 50));
+              }
+            }
+          }
+          
+          // Add delay after sending to ensure BBB processes it
+          await Future.delayed(Duration(milliseconds: 100));
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✅ Sent: $command'),
+              duration: Duration(seconds: 1),
+            ),
+          );
+          
+        } catch (e) {
+          print('❌ Write failed: $e');
+          throw e;
+        }
+      } else {
+        print('❌ WriteWithoutResponse not supported by characteristic');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Device does not support required write mode')),
+        );
+      }
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('✅ Sent: $command')),
-      );
     } catch (e) {
       print('❌ Send error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('❌ Send failed: $e')),
       );
+    }
+  }
+
+  Future<void> _testSendFormat(String data, String formatName) async {
+    if (rxCharacteristic == null) return;
+    
+    try {
+      List<int> bytes = utf8.encode(data);
+      print('🧪 TEST [$formatName]: bytes=$bytes');
+      await rxCharacteristic!.write(bytes, withoutResponse: true);
+      await Future.delayed(Duration(milliseconds: 100));
+    } catch (e) {
+      print('❌ TEST [$formatName] failed: $e');
     }
   }
 
@@ -268,6 +392,7 @@ class _BBBControllerState extends State<BBBController> {
     } finally {
       setState(() {
         isConnected = false;
+        isConnecting = false;
         connectedDevice = null;
         rxCharacteristic = null;
         pwmValue = 0;
@@ -344,19 +469,24 @@ class _BBBControllerState extends State<BBBController> {
             Container(
               padding: EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: isConnected ? Colors.green[100] : Colors.red[100],
+                color: isConnected ? Colors.green[100] : (isConnecting ? Colors.orange[100] : Colors.red[100]),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
                 children: [
                   Icon(
-                    isConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-                    color: isConnected ? Colors.green : Colors.red,
+                    isConnected ? Icons.bluetooth_connected : 
+                         (isConnecting ? Icons.bluetooth_searching : Icons.bluetooth_disabled),
+                    color: isConnected ? Colors.green : (isConnecting ? Colors.orange : Colors.red),
                   ),
                   SizedBox(width: 8),
-                  Text(
-                    isConnected ? 'Connected to Auto BBB' : 'Not Connected to Auto BBB',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  Expanded(
+                    child: Text(
+                      isConnected 
+                          ? 'Connected to Auto BBB (MTU: $_mtu)' 
+                          : (isConnecting ? 'Connecting to Auto BBB...' : 'Not Connected to Auto BBB'),
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ],
               ),
@@ -365,7 +495,7 @@ class _BBBControllerState extends State<BBBController> {
             SizedBox(height: 20),
             
             // Scan Button
-            if (!isConnected) ...[
+            if (!isConnected && !isConnecting) ...[
               ElevatedButton(
                 onPressed: isScanning ? null : scanForDevices,
                 child: Row(
@@ -383,17 +513,6 @@ class _BBBControllerState extends State<BBBController> {
                 ),
               ),
               
-              SizedBox(height: 8),
-              
-              if (_adapterState == BluetoothAdapterState.unknown && 
-                  Theme.of(context).platform == TargetPlatform.iOS)
-                Text(
-                  'On iOS, you can try scanning even if Bluetooth shows "Initializing"',
-                  style: TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic),
-                  textAlign: TextAlign.center,
-                ),
-              
-              // Device List
               if (devicesList.isNotEmpty)
                 Expanded(
                   child: Container(
@@ -420,7 +539,9 @@ class _BBBControllerState extends State<BBBController> {
                                     style: TextStyle(fontWeight: FontWeight.bold),
                                   ),
                                   subtitle: Text('Tap to connect'),
-                                  trailing: Icon(Icons.chevron_right, color: Colors.blue),
+                                  trailing: isConnecting 
+                                      ? CircularProgressIndicator()
+                                      : Icon(Icons.chevron_right, color: Colors.blue),
                                   onTap: () => connectToDevice(devicesList[index]),
                                 ),
                               );
@@ -472,6 +593,12 @@ class _BBBControllerState extends State<BBBController> {
                     sendCommand("turn_stop");
                   }
                 },
+                onChangeEnd: (value) {
+                  double newValue = 0;
+                  setState(() => turnValue = newValue);
+                  //sendCommand("forward ${pwmValue.round()/10}");
+                  print('Ended change on $pwmValue');
+              },
               ),
               
               SizedBox(height: 30),
@@ -485,7 +612,6 @@ class _BBBControllerState extends State<BBBController> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
                       foregroundColor: Colors.white,
-                      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
                     ),
                   ),
                   ElevatedButton(
@@ -494,21 +620,62 @@ class _BBBControllerState extends State<BBBController> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blue,
                       foregroundColor: Colors.white,
-                      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => sendCommand("ping"),
+                    child: Text('PING', style: TextStyle(fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
                     ),
                   ),
                 ],
+              ),
+              
+              SizedBox(height: 20),
+              
+              // Test different formats button
+              ElevatedButton(
+                onPressed: () async {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Testing different formats...')),
+                  );
+                  
+                  // Test 1: Just "ping" with newline
+                  await _testSendFormat("ping\n", "newline only");
+                  await Future.delayed(Duration(seconds: 2));
+                  
+                  // Test 2: "ping" with CR+LF
+                  await _testSendFormat("ping\r\n", "CR+LF");
+                  await Future.delayed(Duration(seconds: 2));
+                  
+                  // Test 3: Just "ping" no terminator
+                  await _testSendFormat("ping", "no terminator");
+                  await Future.delayed(Duration(seconds: 2));
+                  
+                  // Test 4: Single character
+                  await _testSendFormat("p", "single char");
+                  
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Format test complete! Check BBB logs')),
+                  );
+                },
+                child: Text('TEST FORMATS'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.purple,
+                  foregroundColor: Colors.white,
+                ),
               ),
 
               SizedBox(height: 20),
               
               ElevatedButton(
                 onPressed: _disconnect,
-                child: Text('DISCONNECT FROM BBB', style: TextStyle(fontWeight: FontWeight.bold)),
+                child: Text('DISCONNECT'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.orange,
                   foregroundColor: Colors.white,
-                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
                 ),
               ),
             ],
