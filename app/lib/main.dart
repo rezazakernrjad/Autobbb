@@ -607,8 +607,8 @@ class _BBBControllerState extends State<BBBController> {
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   ElevatedButton(
-                    onPressed: () => sendCommand("stop"),
-                    child: Text('STOP', style: TextStyle(fontWeight: FontWeight.bold)),
+                    onPressed: () => sendCommand("brake"),
+                    child: Text('BRAKE', style: TextStyle(fontWeight: FontWeight.bold)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
                       foregroundColor: Colors.white,
@@ -623,8 +623,8 @@ class _BBBControllerState extends State<BBBController> {
                     ),
                   ),
                   ElevatedButton(
-                    onPressed: () => sendCommand("ping"),
-                    child: Text('PING', style: TextStyle(fontWeight: FontWeight.bold)),
+                    onPressed: () => sendCommand("illumination 1"),
+                    child: Text('LAMPS', style: TextStyle(fontWeight: FontWeight.bold)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
                       foregroundColor: Colors.white,
@@ -636,7 +636,7 @@ class _BBBControllerState extends State<BBBController> {
               SizedBox(height: 20),
               
               // Test different formats button
-              ElevatedButton(
+              /* ElevatedButton(
                 onPressed: () async {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Testing different formats...')),
@@ -666,7 +666,7 @@ class _BBBControllerState extends State<BBBController> {
                   backgroundColor: Colors.purple,
                   foregroundColor: Colors.white,
                 ),
-              ),
+              ), */
 
               SizedBox(height: 20),
               
