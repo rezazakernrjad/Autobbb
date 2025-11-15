@@ -583,6 +583,9 @@ class _BBBControllerState extends State<BBBController> {
                 min: -100,
                 max: 100,
                 divisions: 200,
+                label: "Manuvering",
+                activeColor: turnValue < 0 ? Colors.blue : (turnValue > 0 ? Colors.red : Colors.grey[300]),
+                inactiveColor: Colors.grey[300], 
                 onChanged: (value) {
                   setState(() => turnValue = value);
                   if (value < 0) {
