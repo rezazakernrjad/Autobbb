@@ -100,7 +100,7 @@ class _BBBControllerState extends State<BBBController> {
 
     try {
       print('🔍 Starting BLE scan...');
-      await FlutterBluePlus.startScan(timeout: Duration(seconds: 6));
+      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 6));
 
       FlutterBluePlus.scanResults.listen((results) {
         for (ScanResult result in results) {
@@ -116,12 +116,12 @@ class _BBBControllerState extends State<BBBController> {
         }
       });
 
-      await Future.delayed(Duration(seconds: 6));
+      await Future.delayed(const Duration(seconds: 6));
       await FlutterBluePlus.stopScan();
       
       if (devicesList.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text('No Auto BBB devices found. Ensure device is on and nearby.'),
             duration: Duration(seconds: 3),
           ),
@@ -130,7 +130,7 @@ class _BBBControllerState extends State<BBBController> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Found ${devicesList.length} Auto BBB device(s)'),
-            duration: Duration(seconds: 2),
+            duration: const Duration(seconds: 2),
           ),
         );
       }
@@ -160,7 +160,7 @@ class _BBBControllerState extends State<BBBController> {
         await _disconnect();
       }
       
-      await device.connect(timeout: Duration(seconds: 15));
+      await device.connect(timeout: const Duration(seconds: 15));
       
       print('✅ Connected to device');
       
@@ -246,25 +246,25 @@ class _BBBControllerState extends State<BBBController> {
         if (!serviceFound) {
           print('❌ Target service not found');
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('❌ BBB service not found. Check UUIDs.')),
+            const SnackBar(content: Text('❌ BBB service not found. Check UUIDs.')),
           );
           await _disconnect();
           return;
         } else if (!characteristicFound) {
           print('❌ RX characteristic not found');
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('❌ RX characteristic not found')),
+            const SnackBar(content: Text('❌ RX characteristic not found')),
           );
           await _disconnect();
           return;
         } else {
           // Add delay for iOS stability
           print('⏳ Waiting for connection to stabilize...');
-          await Future.delayed(Duration(milliseconds: 500));
+          await Future.delayed(const Duration(milliseconds: 500));
           
           print('🎉 Ready to send commands!');
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('🎉 Connected and ready!')),
+            const SnackBar(content: Text('🎉 Connected and ready!')),
           );
           return; // Success
         }
@@ -272,7 +272,7 @@ class _BBBControllerState extends State<BBBController> {
         print('❌ Service discovery error (attempt ${i + 1}): $e');
         if (i < retries - 1) {
           print('🔄 Retrying service discovery...');
-          await Future.delayed(Duration(seconds: 1));
+          await Future.delayed(const Duration(seconds: 1));
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('❌ Service discovery failed after $retries attempts')),
@@ -287,7 +287,7 @@ class _BBBControllerState extends State<BBBController> {
     if (!isConnected || rxCharacteristic == null) {
       print('❌ Cannot send: Not connected or no RX characteristic');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('❌ Not connected to device')),
+        const SnackBar(content: Text('❌ Not connected to device')),
       );
       return;
     }
@@ -305,7 +305,7 @@ class _BBBControllerState extends State<BBBController> {
       if (bytes.length > (_mtu - 3)) {
         print('⚠️ Command too long for MTU!');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('⚠️ Command too long')),
+          const SnackBar(content: Text('⚠️ Command too long')),
         );
         return;
       }
@@ -335,18 +335,18 @@ class _BBBControllerState extends State<BBBController> {
               
               // Small delay between chunks
               if (end < bytes.length) {
-                await Future.delayed(Duration(milliseconds: 50));
+                await Future.delayed(const Duration(milliseconds: 50));
               }
             }
           }
           
           // Add delay after sending to ensure BBB processes it
-          await Future.delayed(Duration(milliseconds: 100));
+          await Future.delayed(const Duration(milliseconds: 20));
           
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('✅ Sent: $command'),
-              duration: Duration(seconds: 1),
+              duration: const Duration(seconds: 1),
             ),
           );
           
@@ -357,7 +357,7 @@ class _BBBControllerState extends State<BBBController> {
       } else {
         print('❌ WriteWithoutResponse not supported by characteristic');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('❌ Device does not support required write mode')),
+          const SnackBar(content: Text('❌ Device does not support required write mode')),
         );
       }
       
@@ -376,7 +376,7 @@ class _BBBControllerState extends State<BBBController> {
       List<int> bytes = utf8.encode(data);
       print('🧪 TEST [$formatName]: bytes=$bytes');
       await rxCharacteristic!.write(bytes, withoutResponse: true);
-      await Future.delayed(Duration(milliseconds: 100));
+      await Future.delayed(const Duration(milliseconds: 100));
     } catch (e) {
       print('❌ TEST [$formatName] failed: $e');
     }
@@ -423,25 +423,25 @@ class _BBBControllerState extends State<BBBController> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Auto BBB Controller'),
+        title: const Text('Auto BBB Controller'),
         backgroundColor: Colors.blue,
         actions: [
           if (isConnected)
             IconButton(
-              icon: Icon(Icons.bluetooth_disabled),
+              icon: const Icon(Icons.bluetooth_disabled),
               onPressed: _disconnect,
               tooltip: 'Disconnect',
             ),
         ],
       ),
       body: Padding(
-        padding: EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
             // Bluetooth Status Banner
             Container(
-              padding: EdgeInsets.all(16),
-              margin: EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(16),
+              margin: const EdgeInsets.only(bottom: 16),
               decoration: BoxDecoration(
                 color: _getBluetoothStateColor(),
                 borderRadius: BorderRadius.circular(8),
@@ -454,11 +454,11 @@ class _BBBControllerState extends State<BBBController> {
                         : Icons.bluetooth_disabled,
                     color: _isBluetoothReady ? Colors.green : Colors.orange,
                   ),
-                  SizedBox(width: 8),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       _getBluetoothStateMessage(),
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ],
@@ -467,7 +467,7 @@ class _BBBControllerState extends State<BBBController> {
             
             // Connection Status
             Container(
-              padding: EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: isConnected ? Colors.green[100] : (isConnecting ? Colors.orange[100] : Colors.red[100]),
                 borderRadius: BorderRadius.circular(8),
@@ -479,20 +479,20 @@ class _BBBControllerState extends State<BBBController> {
                          (isConnecting ? Icons.bluetooth_searching : Icons.bluetooth_disabled),
                     color: isConnected ? Colors.green : (isConnecting ? Colors.orange : Colors.red),
                   ),
-                  SizedBox(width: 8),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       isConnected 
                           ? 'Connected to Auto BBB (MTU: $_mtu)' 
                           : (isConnecting ? 'Connecting to Auto BBB...' : 'Not Connected to Auto BBB'),
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ],
               ),
             ),
             
-            SizedBox(height: 20),
+            const SizedBox(height: 20),
             
             // Scan Button
             if (!isConnected && !isConnecting) ...[
@@ -502,12 +502,12 @@ class _BBBControllerState extends State<BBBController> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (isScanning) 
-                      SizedBox(
+                      const SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
-                    SizedBox(width: 8),
+                    const SizedBox(width: 8),
                     Text(isScanning ? 'Scanning...' : 'Scan for Auto BBB'),
                   ],
                 ),
@@ -519,29 +519,29 @@ class _BBBControllerState extends State<BBBController> {
                     margin: EdgeInsets.only(top: 16),
                     child: Column(
                       children: [
-                        Text(
+                        const Text(
                           'Found Auto BBB Devices:',
                           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                         ),
-                        SizedBox(height: 8),
+                        const SizedBox(height: 8),
                         Expanded(
                           child: ListView.builder(
                             itemCount: devicesList.length,
                             itemBuilder: (context, index) {
                               return Card(
-                                margin: EdgeInsets.symmetric(vertical: 4),
+                                margin: const EdgeInsets.symmetric(vertical: 4),
                                 child: ListTile(
-                                  leading: Icon(Icons.bluetooth, color: Colors.blue),
+                                  leading: const Icon(Icons.bluetooth, color: Colors.blue),
                                   title: Text(
                                     devicesList[index].name.isEmpty 
                                         ? 'Auto BBB Device' 
                                         : devicesList[index].name,
-                                    style: TextStyle(fontWeight: FontWeight.bold),
+                                    style: const TextStyle(fontWeight: FontWeight.bold),
                                   ),
-                                  subtitle: Text('Tap to connect'),
+                                  subtitle: const Text('Tap to connect'),
                                   trailing: isConnecting 
-                                      ? CircularProgressIndicator()
-                                      : Icon(Icons.chevron_right, color: Colors.blue),
+                                      ? const CircularProgressIndicator()
+                                      : const Icon(Icons.chevron_right, color: Colors.blue),
                                   onTap: () => connectToDevice(devicesList[index]),
                                 ),
                               );
@@ -556,13 +556,13 @@ class _BBBControllerState extends State<BBBController> {
             
             // Control Buttons (only show when connected)
             if (isConnected) ...[
-              SizedBox(height: 20),
-              Text('Auto BBB Motor Control', 
+              const SizedBox(height: 20),
+              const Text('Auto BBB Motor Control', 
                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue)),
-              SizedBox(height: 20),
+              const SizedBox(height: 20),
               
               Text('Forward Speed: ${pwmValue.round()}%', 
-                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               Slider(
                 value: pwmValue,
                 min: 0,
@@ -574,10 +574,10 @@ class _BBBControllerState extends State<BBBController> {
                 },
               ),
 
-              SizedBox(height: 30),
+              const SizedBox(height: 30),
               
               Text('Turning: ${turnValue.round()}%', 
-                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               Slider(
                 value: turnValue,
                 min: -100,
@@ -601,39 +601,39 @@ class _BBBControllerState extends State<BBBController> {
               },
               ),
               
-              SizedBox(height: 30),
+              const SizedBox(height: 30),
               
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   ElevatedButton(
                     onPressed: () => sendCommand("brake"),
-                    child: Text('BRAKE', style: TextStyle(fontWeight: FontWeight.bold)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
                       foregroundColor: Colors.white,
                     ),
+                    child: const Text('BRAKE', style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
                   ElevatedButton(
                     onPressed: () => sendCommand("status"),
-                    child: Text('STATUS', style: TextStyle(fontWeight: FontWeight.bold)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blue,
                       foregroundColor: Colors.white,
                     ),
+                    child: const Text('STATUS', style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
                   ElevatedButton(
                     onPressed: () => sendCommand("illumination 1"),
-                    child: Text('LAMPS', style: TextStyle(fontWeight: FontWeight.bold)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
                       foregroundColor: Colors.white,
                     ),
+                    child: const Text('LAMPS', style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
                 ],
               ),
               
-              SizedBox(height: 20),
+              const SizedBox(height: 20),
               
               // Test different formats button
               /* ElevatedButton(
@@ -668,15 +668,15 @@ class _BBBControllerState extends State<BBBController> {
                 ),
               ), */
 
-              SizedBox(height: 20),
+              const SizedBox(height: 20),
               
               ElevatedButton(
                 onPressed: _disconnect,
-                child: Text('DISCONNECT'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.orange,
                   foregroundColor: Colors.white,
                 ),
+                child: const Text('DISCONNECT'),
               ),
             ],
           ],
