@@ -1,46 +1,48 @@
 # combination of pin_lib, bt_lib and auto_run receive message via bluetooth
-# and control P9_14.
-
+# and control P9_12.
+"""
+from gpiochip0:
+line  12: "P8_12"
+line  13: "P8_11" Left wheel control
+line  14: "P8_16"
+line  15: "P8_15"
+line  28: "P9_12"
+gpiochip3:
+line  27: "P8_17" Right wheel control
+line  26: "P8_14"
+"""
 from periphery import GPIO
 import time
-import threading
 
 class PIN:
     def __init__(self):
         print("Run Pin Control")
-        self.P9_12 = GPIO("/dev/gpiochip0", 28, "out")
-        self.motor_stop_event = threading.Event()
-        self.motor_thread = None
-    def _motor_control_loop(self):
-        """Run the motor control loop in a separate thread"""
-        while not self.motor_stop_event.is_set():
-            self.P9_12.write(True)
-            time.sleep(0.5)
-            if self.motor_stop_event.is_set():
-                break
-            self.P9_12.write(False)
-            time.sleep(0.5)
-    
-    def set_pin_9_12(self, message):
-        print ("set_p_9_12 invoked with: ", message)
-        
-        # Stop any ongoing motor control
-        self.motor_stop_event.set()
-        if self.motor_thread and self.motor_thread.is_alive():
-            self.motor_thread.join(timeout=1.0)  # Wait up to 1 second for thread to stop
-        self.motor_stop_event.clear()
-        
-        if message == 1:
-            self.P9_12.write(True)
-            time.sleep(0.7)
-            print("RUN LED ON command received")
-        elif message == 0:
-            self.P9_12.write(False)
-            time.sleep(0.7)
-            print("RUN LED OFF command received")
-        elif  message == 2:
-            print(f"Motor control command received: {message}")
-            self.motor_thread = threading.Thread(target=self._motor_control_loop)
-            self.motor_thread.daemon = True  # Thread will die when main program exits
-            self.motor_thread.start()
-    # etc.
+        try:
+            self.left_wheel = GPIO("/dev/gpiochip0", 13, "out")
+            print("Left wheel GPIO initialized successfully")
+        except Exception as e:
+            print(f"❌ Error initializing left wheel GPIO: {e}") 
+        try:
+            self.right_wheel = GPIO("/dev/gpiochip3", 26, "out")
+            print("Right wheel GPIO initialized successfully")
+        except Exception as e:
+            print(f"❌ Error initializing right wheel GPIO: {e}")
+
+    def set_left_control(self, direction):
+        try:
+            print(f"PIN: Set left wheel to {direction}")
+            if direction == "left" or direction == "reverse":
+                self.left_wheel.write(True)
+            elif direction == "right" or direction == "forward":
+                self.left_wheel.write(False)
+        except Exception as e:
+            print("❌ Error in set_left_control:", e)
+    def set_right_control(self, direction):
+        try:
+            print(f"PIN: Set right wheel to {direction}")
+            if direction == "left" or direction == "forward":
+                self.right_wheel.write(False)
+            elif direction == "right" or direction == "reverse":
+                self.right_wheel.write(True)
+        except Exception as e:
+            print("❌ Error in set_right_control:", e)

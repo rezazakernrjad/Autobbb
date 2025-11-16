@@ -36,7 +36,6 @@ bt.debug_bluetooth_status()
 bt.lamps_control = pwm.illumination
 bt.turn_left = cont.turn_left
 bt.turn_right = cont.turn_right
-bt.turn_end = cont.turn_end
 bt.move_forward = cont.forward
 bt.move_reverse = cont.reverse
 bt.brake_movement = cont.brake

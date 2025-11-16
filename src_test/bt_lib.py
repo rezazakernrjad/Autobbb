@@ -29,7 +29,9 @@ class BT:
         self.move_reverse = None
         self.turn_left = None
         self.turn_right = None
+        self.turn_end = None
         self.illumination = None
+        self.lamps_control = None  # ← FIXED: Added missing variable
         self.brake_movement = None
         self.left_control = None
         self.right_control = None
@@ -41,14 +43,14 @@ class BT:
         self.is_connected = False  # Track connection state
         self.notifications_enabled = False  # Track if notifications are enabled
         self.tx_characteristic = None  # Store TX characteristic reference
-        
+
     def connection_cb(self, device_path):
         """Callback when a device connects"""
         print(f"Device connected: {device_path}")
         self.is_connected = True
         self.connected_devices.append(device_path)
         print("BBB is now connected to iPhone")
-    
+
     def disconnection_cb(self, device_path):
         """Callback when a device disconnects"""
         print(f"Device disconnected: {device_path}")
@@ -56,76 +58,158 @@ class BT:
         if device_path in self.connected_devices:
             self.connected_devices.remove(device_path)
         print("BBB disconnected from iPhone")
-    
+
     def notification_cb(self, characteristic_path, enabled):
         """Callback when notifications are enabled/disabled"""
         print(f"Notifications {'enabled' if enabled else 'disabled'} for {characteristic_path}")
         self.notifications_enabled = enabled
-    
+
     def rx_write_cb(self, value, options):
-        print(f"📱 Received from iPhone: {value.decode()}")
-        print(f"⏰ Time: {time.strftime('%H:%M:%S')}")
-        # Process your data here directly
-        self.process_received_data(value.decode())
-    
+        """Callback when data is received from iPhone via BLE"""
+        # Decode and clean the received data
+        try:
+            # Strip any whitespace and null terminators
+            decoded = value.decode('utf-8').strip('\x00\n\r')
+            print(f"📱 Received from iPhone: '{decoded}'")
+            print(f"📱 RAW BYTES: {value}")
+            print(f"📱 RAW HEX: {value.hex()}")
+            print(f"⏰ Time: {time.strftime('%H:%M:%S')}")
+            
+            # Process the command
+            if decoded:  # Only process non-empty commands
+                self.process_received_data(decoded)
+            else:
+                print("⚠️  Empty command received, ignoring")
+                
+        except Exception as e:
+            print(f"❌ Error decoding received data: {e}")
+            print(f"   Raw bytes: {value}")
+
     def process_received_data(self, message):
         """Process the received data - use custom processor if available"""
-        print(f"🔄 Processing command: {message}")
+        print(f"🔄 Processing command: '{message}'")
+        
+        # Split command into parts
         parts = message.split()
-        key = parts[0]
-        value = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+        if not parts:
+            print("⚠️  Empty command after split")
+            return
+            
+        key = parts[0].lower()  # Make command case-insensitive
+        value = None
+        
+        # Parse value if present
+        if len(parts) > 1:
+            try:
+                value = float(parts[1])
+            except ValueError:
+                print(f"⚠️  Could not parse value: {parts[1]}")
+                value = None
 
-        if self.lamps_control:
-            # Use custom processor functions
-            if key == "illumination":
-                print(f"💡 Controlling lamps...")
+        print(f"Command: '{key}', Value: {value}")
+
+        # Process commands regardless of lamps_control status
+        # Handle basic commands that don't require external control functions
+        if key == "status":
+            print("📊 Status request received")
+            self.send_to_iphone("BBB_READY")
+            return
+        elif key == "ping":
+            print("🏓 Ping received")
+            self.send_to_iphone("PONG")
+            return
+        elif key == "rssi":
+            print("📶 RSSI request received")
+            rssi = self.get_current_rssi()
+            self.send_to_iphone(f"RSSI_{rssi}")
+            return
+        elif key == "stop":
+            print("🛑 Stop command received")
+            if self.brake_movement:
+                self.brake_movement()
+                self.send_to_iphone("STOP_OK")
+            else:
+                self.send_to_iphone("STOP_NO_HANDLER")
+            return
+
+        # Handle control commands that need external functions
+        if key == "illumination":
+            print(f"💡 Controlling lamps with value: {value}")
+            if self.lamps_control:
                 self.lamps_control(20, value)
                 self.send_to_iphone("LAMPS_OK")
-            elif key == "turn_left":
-                print(f"⬅️  Controlling turn_left with angle: {value}")
+            elif self.illumination:
+                self.illumination(value)
+                self.send_to_iphone("LAMPS_OK")
+            else:
+                print("⚠️  No lamp control function set")
+                self.send_to_iphone("LAMPS_NO_HANDLER")
+                
+        elif key == "turn_left":
+            print(f"⬅️  Controlling turn_left with angle: {value}")
+            if self.turn_left:
                 self.turn_left(value)
                 self.send_to_iphone(f"LEFT_{value}_OK")
-            elif key == "turn_right":
-                print(f"➡️  Controlling right with value: {value}")
+            else:
+                print("⚠️  No turn_left function set")
+                self.send_to_iphone("LEFT_NO_HANDLER")
+                
+        elif key == "turn_right":
+            print(f"➡️  Controlling right with value: {value}")
+            if self.turn_right:
                 self.turn_right(value)
                 self.send_to_iphone(f"RIGHT_{value}_OK")
-            elif key == "forward":
-                print(f"⬆️  Controlling forward with speed: {value}")
+            else:
+                print("⚠️  No turn_right function set")
+                self.send_to_iphone("RIGHT_NO_HANDLER")
+                
+        elif key == "turn_end" or key == "turn_stop":
+            print(f"🔄 Controlling turn_end")
+            if self.turn_end:
+                self.turn_end()
+                self.send_to_iphone("TURN_END_OK")
+            else:
+                print("⚠️  No turn_end function set")
+                self.send_to_iphone("TURN_END_NO_HANDLER")
+                
+        elif key == "forward":
+            print(f"⬆️  Controlling forward with speed: {value}")
+            if self.move_forward:
                 self.move_forward(value)
                 self.send_to_iphone(f"FORWARD_{value}_OK")
-            elif key == "reverse":
-                print(f"⬇️  Controlling reverse")
+            else:
+                print("⚠️  No move_forward function set")
+                self.send_to_iphone("FORWARD_NO_HANDLER")
+                
+        elif key == "reverse":
+            print(f"⬇️  Controlling reverse")
+            if self.move_reverse:
                 self.move_reverse()
                 self.send_to_iphone("REVERSE_OK")
-            elif key == "brake":
-                print(f"🛑 Controlling brake")
+            else:
+                print("⚠️  No move_reverse function set")
+                self.send_to_iphone("REVERSE_NO_HANDLER")
+                
+        elif key == "brake":
+            print(f"🛑 Controlling brake")
+            if self.brake_movement:
                 self.brake_movement()
                 self.send_to_iphone("BRAKE_OK")
-            elif key == "status":
-                print("📊 Status request received")
-                self.send_to_iphone("BBB_READY")
-            elif key == "ping":
-                print("🏓 Ping received")
-                self.send_to_iphone("PONG")
-            elif key == "rssi":
-                print("📶 RSSI request received")
-                # Get current signal strength
-                rssi = self.get_current_rssi()
-                self.send_to_iphone(f"RSSI_{rssi}")
             else:
-                print(f"❓ Unknown command: {key}")
-                self.send_to_iphone("UNKNOWN_COMMAND")
+                print("⚠️  No brake_movement function set")
+                self.send_to_iphone("BRAKE_NO_HANDLER")
+                
         else:
-            print("⚠️  No pin control configured")
-            self.send_to_iphone("ERROR_NO_CONTROL")
-        
+            print(f"❓ Unknown command: '{key}'")
+            self.send_to_iphone(f"UNKNOWN_COMMAND_{key}")
+
     def get_current_rssi(self):
         """Get current RSSI of connected device"""
         try:
             # Method 1: Try using hcitool for active connections
             result = subprocess.run(['hcitool', 'con'], 
                                   capture_output=True, text=True, timeout=5)
-            
+
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')[1:]  # Skip header
                 for line in lines:
@@ -137,23 +221,23 @@ class BT:
                             if rssi:
                                 self.current_rssi = rssi
                                 return rssi
-            
+
             # Method 2: Return cached value if available
             if self.current_rssi:
                 return self.current_rssi
-                
+
             return -999  # Return error value if no RSSI available
-            
+
         except Exception as e:
             print(f"Error getting current RSSI: {e}")
             return -999
-    
+
     def get_rssi_via_hcitool(self, device_address):
         """Get RSSI using hcitool command"""
         try:
             result = subprocess.run(['hcitool', 'rssi', device_address], 
                                   capture_output=True, text=True, timeout=3)
-            
+
             if result.returncode == 0:
                 # Parse RSSI from output
                 rssi_match = re.search(r'RSSI return value: (-?\d+)', result.stdout)
@@ -161,12 +245,12 @@ class BT:
                     rssi = int(rssi_match.group(1))
                     print(f"RSSI for {device_address}: {rssi} dBm")
                     return rssi
-            
+
             return None
         except Exception as e:
             print(f"Error getting RSSI via hcitool: {e}")
             return None
-    
+
     def start_rssi_monitoring(self, interval=5):
         """Start monitoring RSSI in background"""
         self.rssi_monitoring = True
@@ -263,11 +347,14 @@ class BT:
         print(f"TX UUID: {self.TX_UUID}")
         print(f"Device Name: BBB-PosServer")
         print(f"Adapter Address: EC:75:0C:F7:12:43")
+        print("\n" + "="*50)
+        print("🎯 BBB BLE Server Ready!")
+        print("="*50)
 
         try:
             # Start advertising and publishing GATT service
             self.ble_periph.publish()
-            print("✓ BLE server is now advertising and ready for connections")
+            print("✅ BLE server is now advertising and ready for connections")
             print("Waiting for iPhone to connect...")
             
             signal.pause()

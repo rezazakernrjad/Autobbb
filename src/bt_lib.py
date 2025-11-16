@@ -1,6 +1,14 @@
-# combination of pin_lib, bt_lib and auto_run receive message via bluetooth
-# and control P9_14.
-
+"""
+combination of pin_lib, bt_lib and auto_run receive message via bluetooth
+and control P9_14.
+Commands via BT:
+    Forward:    ("forward" speed)
+    Reverse:    ("reverse")
+    Turn Left:  ("left" angle)
+    Turn Right: ("right" angle)
+    Brake:      ("brake")
+    Lamps:      ("illumination" effect)
+"""
 from bluezero import peripheral
 import signal
 import subprocess
@@ -16,11 +24,17 @@ class BT:
         self.TX_UUID      = '6E400003-B5A3-F393-E0A9-E50E24DCCA9E'  # For sending to iPhone
         self.ble_periph = None
         self.response_message = b''  # Store the response message
-        self.pin_control = None  # For custom data processing function
-        self.lamps_control = None
+        self.start_control = None  # For custom data processing function
+        self.move_forward = None
+        self.move_reverse = None
+        self.turn_left = None
+        self.turn_right = None
+        self.illumination = None
+        self.brake_movement = None
         self.left_control = None
         self.right_control = None
-        self.duty = None
+        self.dance = None
+
         self.connected_devices = []  # Track connected devices
         self.rssi_monitoring = False  # Flag for RSSI monitoring
         self.current_rssi = None  # Store current RSSI value
@@ -61,20 +75,32 @@ class BT:
         key = parts[0]
         value = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
 
-        if self.pin_control:
+        if self.lamps_control:
             # Use custom processor functions
-            if key == "lamps":
+            if key == "illumination":
                 print(f"💡 Controlling lamps...")
-                self.lamps_control(20, key)
+                self.lamps_control(20, value)
                 self.send_to_iphone("LAMPS_OK")
-            elif key == "left":
-                print(f"⬅️  Controlling left with value: {value}")
-                self.left_control(key, value)
+            elif key == "turn_left":
+                print(f"⬅️  Controlling turn_left with angle: {value}")
+                self.turn_left(value)
                 self.send_to_iphone(f"LEFT_{value}_OK")
-            elif key == "right":
+            elif key == "turn_right":
                 print(f"➡️  Controlling right with value: {value}")
-                self.right_control(key, value)
+                self.turn_right(value)
                 self.send_to_iphone(f"RIGHT_{value}_OK")
+            elif key == "forward":
+                print(f"⬆️  Controlling forward with speed: {value}")
+                self.move_forward(value)
+                self.send_to_iphone(f"FORWARD_{value}_OK")
+            elif key == "reverse":
+                print(f"⬇️  Controlling reverse")
+                self.move_reverse()
+                self.send_to_iphone("REVERSE_OK")
+            elif key == "brake":
+                print(f"🛑 Controlling brake")
+                self.brake_movement()
+                self.send_to_iphone("BRAKE_OK")
             elif key == "status":
                 print("📊 Status request received")
                 self.send_to_iphone("BBB_READY")
