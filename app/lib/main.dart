@@ -27,6 +27,7 @@ class BBBController extends StatefulWidget {
 class _BBBControllerState extends State<BBBController> {
   BluetoothDevice? connectedDevice;
   BluetoothCharacteristic? rxCharacteristic;
+  BluetoothCharacteristic? txCharacteristic;
   bool isScanning = false;
   bool isConnected = false;
   bool isConnecting = false;
@@ -36,12 +37,16 @@ class _BBBControllerState extends State<BBBController> {
 
   BluetoothAdapterState _adapterState = BluetoothAdapterState.unknown;
   StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
+  StreamSubscription<List<int>>? txSubscription;
   bool _isBluetoothReady = false;
   
   int _mtu = 23; // Default BLE MTU
+  String lastResponse = '';
+  List<String> responseHistory = [];
 
   final String SERVICE_UUID = '6E400001-B5A3-F393-E0A9-E50E24DCCA9E';
   final String RX_UUID = '6E400002-B5A3-F393-E0A9-E50E24DCCA9E';
+  final String TX_UUID = '6E400003-B5A3-F393-E0A9-E50E24DCCA9E';
 
   @override
   void initState() {
@@ -52,6 +57,7 @@ class _BBBControllerState extends State<BBBController> {
   @override
   void dispose() {
     _adapterStateSubscription?.cancel();
+    txSubscription?.cancel();
     super.dispose();
   }
 
@@ -212,7 +218,8 @@ class _BBBControllerState extends State<BBBController> {
         print('📋 Found ${services.length} services');
         
         bool serviceFound = false;
-        bool characteristicFound = false;
+        bool rxFound = false;
+        bool txFound = false;
         
         for (BluetoothService service in services) {
           print('🔧 Service UUID: ${service.uuid.toString().toUpperCase()}');
@@ -222,24 +229,64 @@ class _BBBControllerState extends State<BBBController> {
             print('✅ Found target service!');
             
             for (BluetoothCharacteristic characteristic in service.characteristics) {
-              print('🔍 Characteristic UUID: ${characteristic.uuid.toString().toUpperCase()}');
+              String charUuid = characteristic.uuid.toString().toUpperCase();
+              print('🔍 Characteristic UUID: $charUuid');
               
-              if (characteristic.uuid.toString().toUpperCase() == RX_UUID.toUpperCase()) {
+              // Find RX characteristic (for sending TO BBB)
+              if (charUuid == RX_UUID.toUpperCase()) {
                 rxCharacteristic = characteristic;
-                characteristicFound = true;
-                print('✅ Found RX characteristic!');
-                
-                // Print characteristic properties
-                print('📊 Characteristic properties:');
+                rxFound = true;
+                print('✅ Found RX characteristic (write to BBB)');
                 print('   Write: ${characteristic.properties.write}');
                 print('   WriteWithoutResponse: ${characteristic.properties.writeWithoutResponse}');
+              }
+              
+              // Find TX characteristic (for receiving FROM BBB)
+              if (charUuid == TX_UUID.toUpperCase()) {
+                txCharacteristic = characteristic;
+                txFound = true;
+                print('✅ Found TX characteristic (receive from BBB)');
                 print('   Notify: ${characteristic.properties.notify}');
                 print('   Read: ${characteristic.properties.read}');
                 
-                break;
+                // Subscribe to notifications from BBB
+                try {
+                  await txCharacteristic!.setNotifyValue(true);
+                  print('📡 Enabled notifications on TX characteristic');
+                  
+                  // Listen for data from BBB
+                  txSubscription = txCharacteristic!.lastValueStream.listen((value) {
+                    if (value.isNotEmpty) {
+                      String response = utf8.decode(value);
+                      print('📥 Response from BBB: "$response"');
+                      
+                      setState(() {
+                        lastResponse = response;
+                        responseHistory.insert(0, '${DateTime.now().toString().substring(11, 19)}: $response');
+                        if (responseHistory.length > 10) {
+                          responseHistory.removeLast();
+                        }
+                      });
+                      
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('BBB: $response'),
+                          duration: Duration(seconds: 2),
+                          backgroundColor: Colors.green[700],
+                        ),
+                      );
+                    }
+                  }, onError: (error) {
+                    print('❌ TX subscription error: $error');
+                  });
+                  
+                  print('✅ Subscribed to TX notifications');
+                } catch (e) {
+                  print('⚠️ Failed to subscribe to TX notifications: $e');
+                }
               }
             }
-            break;
+            break; // Found our service, no need to continue
           }
         }
         
@@ -250,24 +297,36 @@ class _BBBControllerState extends State<BBBController> {
           );
           await _disconnect();
           return;
-        } else if (!characteristicFound) {
+        } else if (!rxFound) {
           print('❌ RX characteristic not found');
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('❌ RX characteristic not found')),
           );
           await _disconnect();
           return;
-        } else {
-          // Add delay for iOS stability
-          print('⏳ Waiting for connection to stabilize...');
-          await Future.delayed(const Duration(milliseconds: 500));
-          
-          print('🎉 Ready to send commands!');
+        } else if (!txFound) {
+          print('⚠️ TX characteristic not found - no responses from BBB');
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('🎉 Connected and ready!')),
+            const SnackBar(
+              content: Text('⚠️ Connected but cannot receive responses'),
+              backgroundColor: Colors.orange,
+            ),
           );
-          return; // Success
         }
+        
+        // Add delay for iOS stability
+        print('⏳ Waiting for connection to stabilize...');
+        await Future.delayed(const Duration(milliseconds: 500));
+        
+        print('🎉 Ready to send commands!');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('🎉 Connected! RX:${rxFound ? "✓" : "✗"} TX:${txFound ? "✓" : "✗"}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        return; // Success
+        
       } catch (e) {
         print('❌ Service discovery error (attempt ${i + 1}): $e');
         if (i < retries - 1) {
@@ -293,7 +352,7 @@ class _BBBControllerState extends State<BBBController> {
     }
     
     try {
-      // Format command - try newline terminator (most common for UART)
+      // Format command - newline terminator for UART
       String formattedCommand = command + '\n';
       List<int> bytes = utf8.encode(formattedCommand);
       
@@ -310,8 +369,7 @@ class _BBBControllerState extends State<BBBController> {
         return;
       }
       
-      // CRITICAL: Use writeWithoutResponse and add delay for iOS BLE
-      // iOS needs time between writes, and BBB might need writeWithoutResponse
+      // Use   (iOS/BBB compatible)
       if (rxCharacteristic!.properties.writeWithoutResponse) {
         try {
           print('📝 Writing WITHOUT response (iOS/BBB compatible mode)...');
@@ -369,21 +427,9 @@ class _BBBControllerState extends State<BBBController> {
     }
   }
 
-  Future<void> _testSendFormat(String data, String formatName) async {
-    if (rxCharacteristic == null) return;
-    
-    try {
-      List<int> bytes = utf8.encode(data);
-      print('🧪 TEST [$formatName]: bytes=$bytes');
-      await rxCharacteristic!.write(bytes, withoutResponse: true);
-      await Future.delayed(const Duration(milliseconds: 100));
-    } catch (e) {
-      print('❌ TEST [$formatName] failed: $e');
-    }
-  }
-
   Future<void> _disconnect() async {
     try {
+      txSubscription?.cancel();
       if (connectedDevice != null) {
         await connectedDevice!.disconnect();
       }
@@ -395,9 +441,13 @@ class _BBBControllerState extends State<BBBController> {
         isConnecting = false;
         connectedDevice = null;
         rxCharacteristic = null;
+        txCharacteristic = null;
+        txSubscription = null;
         pwmValue = 0;
         turnValue = 0;
         devicesList.clear();
+        lastResponse = '';
+        responseHistory.clear();
       });
     }
   }
@@ -483,8 +533,8 @@ class _BBBControllerState extends State<BBBController> {
                   Expanded(
                     child: Text(
                       isConnected 
-                          ? 'Connected to Auto BBB (MTU: $_mtu)' 
-                          : (isConnecting ? 'Connecting to Auto BBB...' : 'Not Connected to Auto BBB'),
+                          ? 'Connected (MTU: $_mtu)' 
+                          : (isConnecting ? 'Connecting...' : 'Not Connected'),
                       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -556,7 +606,35 @@ class _BBBControllerState extends State<BBBController> {
             
             // Control Buttons (only show when connected)
             if (isConnected) ...[
-              const SizedBox(height: 20),
+              // Display last response from BBB
+              if (lastResponse.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.green[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.green),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.message, color: Colors.green),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'BBB: $lastResponse',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green[900],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              
+              const SizedBox(height: 10),
               const Text('Auto BBB Motor Control', 
                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue)),
               const SizedBox(height: 20),
@@ -583,7 +661,7 @@ class _BBBControllerState extends State<BBBController> {
                 min: -100,
                 max: 100,
                 divisions: 200,
-                label: "Manuvering",
+                label: "Maneuvering",
                 activeColor: turnValue < 0 ? Colors.blue : (turnValue > 0 ? Colors.red : Colors.grey[300]),
                 inactiveColor: Colors.grey[300], 
                 onChanged: (value) {
@@ -593,15 +671,15 @@ class _BBBControllerState extends State<BBBController> {
                   } else if (value > 0) {
                     sendCommand("turn_right ${value.round()}");
                   } else {
-                    sendCommand("turn_stop");
+                    sendCommand("turn_dummy");
                   }
                 },
                 onChangeEnd: (value) {
-                  double newValue = 0;
-                  setState(() => turnValue = newValue);
-                  //sendCommand("forward ${pwmValue.round()/10}");
+                  double zeroValue = 0;
+                  setState(() => turnValue = zeroValue);
+                  sendCommand("turn_end");
                   print('Ended change on $pwmValue');
-              },
+                },
               ),
               
               const SizedBox(height: 30),
@@ -635,41 +713,6 @@ class _BBBControllerState extends State<BBBController> {
                   ),
                 ],
               ),
-              
-              const SizedBox(height: 20),
-              
-              // Test different formats button
-              /* ElevatedButton(
-                onPressed: () async {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Testing different formats...')),
-                  );
-                  
-                  // Test 1: Just "ping" with newline
-                  await _testSendFormat("ping\n", "newline only");
-                  await Future.delayed(Duration(seconds: 2));
-                  
-                  // Test 2: "ping" with CR+LF
-                  await _testSendFormat("ping\r\n", "CR+LF");
-                  await Future.delayed(Duration(seconds: 2));
-                  
-                  // Test 3: Just "ping" no terminator
-                  await _testSendFormat("ping", "no terminator");
-                  await Future.delayed(Duration(seconds: 2));
-                  
-                  // Test 4: Single character
-                  await _testSendFormat("p", "single char");
-                  
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Format test complete! Check BBB logs')),
-                  );
-                },
-                child: Text('TEST FORMATS'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.purple,
-                  foregroundColor: Colors.white,
-                ),
-              ), */
 
               const SizedBox(height: 20),
               
