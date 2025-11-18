@@ -55,6 +55,8 @@ class WheelController:
 
     def turn_end(self):
         self.pwm.set_all_wheels_duty(self.speed)
+        self.speed_right = self.speed
+        self.speed_left = self.speed
         print("CONT: turn ended, resuming forward movement")
 
     def forward(self, speed):
