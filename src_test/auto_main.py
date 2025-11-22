@@ -1,7 +1,7 @@
 # combination of pin_lib, bt_lib and auto_run receive message via bluetooth
 # and control P9_14.
 
-from bt_lib import BT
+from bt_lib import BLEServer
 from pin_lib import PIN
 from pwm_lib import PWMController
 from controller import WheelController
@@ -10,7 +10,7 @@ import sys
 
 def signal_handler(sig, frame):
     print('\nShutting down gracefully...')
-    bt.stop_server()
+    bt._emergency_stop()
 
 # Set up signal handler for graceful shutdown
 signal.signal(signal.SIGINT, signal_handler)
@@ -24,7 +24,7 @@ print("=" * 50)
 pin = PIN()
 # Create PWM controller
 pwm = PWMController()
-bt = BT()
+bt = BLEServer()
 # Create cont Controller
 cont = WheelController(pin=pin, pwm=pwm)
 
@@ -47,5 +47,5 @@ print("If this is your iPhone, communication should work.")
 print("\n" + "="*50)
 
 # Start the server (this will block)
-bt.start_server()
+bt.run()
  
