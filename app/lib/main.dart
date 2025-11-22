@@ -38,7 +38,9 @@ class _BBBControllerState extends State<BBBController> {
   BluetoothAdapterState _adapterState = BluetoothAdapterState.unknown;
   StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
   StreamSubscription<List<int>>? txSubscription;
+  StreamSubscription<BluetoothConnectionState>? _connectionStateSubscription;
   bool _isBluetoothReady = false;
+  bool _isDisconnecting = false; // Flag to track intentional disconnect
   
   int _mtu = 23; // Default BLE MTU
   String lastResponse = '';
@@ -56,8 +58,16 @@ class _BBBControllerState extends State<BBBController> {
 
   @override
   void dispose() {
+    print('🗑️ Disposing widget...');
     _adapterStateSubscription?.cancel();
     txSubscription?.cancel();
+    _connectionStateSubscription?.cancel();
+    // Disconnect if still connected
+    if (connectedDevice != null) {
+      connectedDevice!.disconnect().catchError((e) {
+        print('⚠️ Error disconnecting during dispose: $e');
+      });
+    }
     super.dispose();
   }
 
@@ -125,6 +135,8 @@ class _BBBControllerState extends State<BBBController> {
       await Future.delayed(const Duration(seconds: 6));
       await FlutterBluePlus.stopScan();
       
+      if (!mounted) return;
+      
       if (devicesList.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -152,7 +164,13 @@ class _BBBControllerState extends State<BBBController> {
   }
 
   Future<void> connectToDevice(BluetoothDevice device) async {
-    if (isConnecting) return;
+    print('🔵 Connect requested for: ${device.name}');
+    
+    // Prevent multiple simultaneous connections
+    if (isConnecting) {
+      print('⚠️ Already connecting, please wait...');
+      return;
+    }
     
     setState(() {
       isConnecting = true;
@@ -163,12 +181,54 @@ class _BBBControllerState extends State<BBBController> {
       
       // Disconnect first if already connected to another device
       if (connectedDevice != null && connectedDevice != device) {
+        print('🔄 Disconnecting from previous device...');
         await _disconnect();
+        // Small delay after disconnect before reconnecting
+        await Future.delayed(const Duration(milliseconds: 500));
       }
       
-      await device.connect(timeout: const Duration(seconds: 15));
+      // Ensure device is not already connected
+      var currentState = await device.connectionState.first;
+      if (currentState == BluetoothConnectionState.connected) {
+        print('⚠️ Device already connected, disconnecting first...');
+        await device.disconnect();
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+      
+      print('📡 Initiating connection...');
+      await device.connect(
+        timeout: const Duration(seconds: 15),
+        autoConnect: false, // Disable auto-connect to have more control
+      );
       
       print('✅ Connected to device');
+      
+      // Verify connection established
+      var verifyState = await device.connectionState.first.timeout(Duration(seconds: 2));
+      print('📊 Connection state verified: $verifyState');
+      
+      // Monitor connection state for unexpected disconnects
+      _connectionStateSubscription?.cancel(); // Cancel any existing subscription
+      _connectionStateSubscription = device.connectionState.listen((state) {
+        final timestamp = DateTime.now().toString().substring(11, 23);
+        print('🔗 [$timestamp] Connection state changed: $state');
+        if (state == BluetoothConnectionState.disconnected) {
+          print('⚠️ [$timestamp] Device disconnected!');
+          // Only handle unexpected disconnects, not intentional ones
+          if (mounted && !_isDisconnecting) {
+            print('⚠️ [$timestamp] Unexpected disconnect detected');
+            _resetState();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('⚠️ Device disconnected unexpectedly'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          } else {
+            print('ℹ️ [$timestamp] Intentional disconnect, ignoring');
+          }
+        }
+      });
       
       setState(() {
         connectedDevice = device;
@@ -193,6 +253,16 @@ class _BBBControllerState extends State<BBBController> {
         print('⚠️ MTU request failed: $e');
       }
 
+      // Longer delay to let BBB GATT services become fully available
+      print('⏳ Waiting for GATT services to become available...');
+      await Future.delayed(const Duration(seconds: 3));
+      
+      // Check if still connected
+      var connectionState = await device.connectionState.first;
+      if (connectionState != BluetoothConnectionState.connected) {
+        throw Exception('Device disconnected before service discovery');
+      }
+
       // Discover services with retry
       await _discoverServicesWithRetry(device);
       
@@ -209,11 +279,27 @@ class _BBBControllerState extends State<BBBController> {
   }
 
   Future<void> _discoverServicesWithRetry(BluetoothDevice device) async {
-    int retries = 3;
+    int retries = 5; // Increased retries
     
     for (int i = 0; i < retries; i++) {
       try {
         print('🔎 Discovering services (attempt ${i + 1}/$retries)...');
+        
+        // Add a delay before retry (except first attempt)
+        if (i > 0) {
+          print('⏳ Waiting before retry...');
+          await Future.delayed(Duration(milliseconds: 500)); // Shorter delay
+        }
+        
+        // Check connection state before attempting discovery
+        var state = await device.connectionState.first.timeout(Duration(seconds: 2));
+        if (state != BluetoothConnectionState.connected) {
+          throw Exception('Device not connected (state: $state)');
+        }
+        
+        print('📡 Starting service discovery...');
+        // Don't add timeout - let flutter_blue_plus handle it
+        // The internal timeout is 15s on iOS
         List<BluetoothService> services = await device.discoverServices();
         print('📋 Found ${services.length} services');
         
@@ -255,26 +341,29 @@ class _BBBControllerState extends State<BBBController> {
                   print('📡 Enabled notifications on TX characteristic');
                   
                   // Listen for data from BBB
+                  txSubscription?.cancel(); // Cancel any existing subscription
                   txSubscription = txCharacteristic!.lastValueStream.listen((value) {
                     if (value.isNotEmpty) {
                       String response = utf8.decode(value);
                       print('📥 Response from BBB: "$response"');
                       
-                      setState(() {
-                        lastResponse = response;
-                        responseHistory.insert(0, '${DateTime.now().toString().substring(11, 19)}: $response');
-                        if (responseHistory.length > 10) {
-                          responseHistory.removeLast();
-                        }
-                      });
-                      
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('BBB: $response'),
-                          duration: Duration(seconds: 2),
-                          backgroundColor: Colors.green[700],
-                        ),
-                      );
+                      if (mounted) {
+                        setState(() {
+                          lastResponse = response;
+                          responseHistory.insert(0, '${DateTime.now().toString().substring(11, 19)}: $response');
+                          if (responseHistory.length > 10) {
+                            responseHistory.removeLast();
+                          }
+                        });
+                        
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('BBB: $response'),
+                            duration: Duration(seconds: 2),
+                            backgroundColor: Colors.green[700],
+                          ),
+                        );
+                      }
                     }
                   }, onError: (error) {
                     print('❌ TX subscription error: $error');
@@ -369,7 +458,7 @@ class _BBBControllerState extends State<BBBController> {
         return;
       }
       
-      // Use   (iOS/BBB compatible)
+      // Use writeWithoutResponse (iOS/BBB compatible)
       if (rxCharacteristic!.properties.writeWithoutResponse) {
         try {
           print('📝 Writing WITHOUT response (iOS/BBB compatible mode)...');
@@ -428,28 +517,126 @@ class _BBBControllerState extends State<BBBController> {
   }
 
   Future<void> _disconnect() async {
-    try {
-      txSubscription?.cancel();
-      if (connectedDevice != null) {
-        await connectedDevice!.disconnect();
+    print('🔴 Disconnect requested...');
+    
+    // Set flag to indicate intentional disconnect
+    _isDisconnecting = true;
+    
+    // Prevent multiple simultaneous disconnect calls
+    if (!isConnected && connectedDevice == null) {
+      print('⚠️ Already disconnected');
+      _resetState();
+      _isDisconnecting = false;
+      return;
+    }
+    
+    // Store reference before clearing
+    final deviceToDisconnect = connectedDevice;
+    final txSub = txSubscription;
+    final connStateSub = _connectionStateSubscription;
+    
+    // Cancel connection state listener FIRST to prevent triggering during disconnect
+    if (connStateSub != null) {
+      print('🚫 Cancelling connection state subscription first...');
+      try {
+        await connStateSub.cancel();
+        _connectionStateSubscription = null;
+      } catch (e) {
+        print('⚠️ Error cancelling connection subscription: $e');
       }
+    }
+    
+    // Clear state immediately to prevent UI interaction
+    if (mounted) {
+      setState(() {
+        isConnected = false;
+        isConnecting = false;
+      });
+    }
+    
+    try {
+      // 1. Disable notifications first (critical for iOS)
+      if (txCharacteristic != null && deviceToDisconnect != null) {
+        try {
+          print('🔕 Disabling TX notifications...');
+          await txCharacteristic!.setNotifyValue(false).timeout(
+            const Duration(seconds: 1),
+          );
+          print('✅ Notifications disabled');
+        } on TimeoutException catch (_) {
+          print('⚠️ Disable notifications timeout');
+        } catch (e) {
+          print('⚠️ Error disabling notifications: $e');
+        }
+      }
+      
+      // 2. Cancel TX subscription
+      if (txSub != null) {
+        print('🚫 Cancelling TX subscription...');
+        try {
+          await txSub.cancel();
+        } catch (e) {
+          print('⚠️ Error cancelling TX subscription: $e');
+        }
+      }
+      
+      // 3. Small delay to let BLE stack settle
+      await Future.delayed(const Duration(milliseconds: 200));
+      
+      // 4. Disconnect from device
+      if (deviceToDisconnect != null) {
+        print('🔌 Disconnecting from device...');
+        
+        try {
+          await deviceToDisconnect.disconnect().timeout(
+            const Duration(seconds: 2),
+          );
+          print('✅ Device disconnected');
+        } on TimeoutException catch (_) {
+          print('⚠️ Disconnect timeout - forcing cleanup');
+        } catch (e) {
+          print('⚠️ Disconnect error (continuing cleanup): $e');
+        }
+      }
+      
+      print('✅ Disconnect sequence completed');
+      
     } catch (e) {
-      print('⚠️ Disconnect error: $e');
+      print('❌ Disconnect error: $e');
     } finally {
+      // Always reset state regardless of errors
+      _resetState();
+      // Reset disconnect flag
+      _isDisconnecting = false;
+    }
+  }
+  
+  void _resetState() {
+    print('🔄 Resetting connection state...');
+    
+    // Clear characteristics first to prevent access
+    rxCharacteristic = null;
+    txCharacteristic = null;
+    
+    // Cancel subscriptions (already should be done, but safety measure)
+    _connectionStateSubscription?.cancel();
+    _connectionStateSubscription = null;
+    txSubscription = null;
+    
+    if (mounted) {
       setState(() {
         isConnected = false;
         isConnecting = false;
         connectedDevice = null;
-        rxCharacteristic = null;
-        txCharacteristic = null;
-        txSubscription = null;
         pwmValue = 0;
         turnValue = 0;
-        devicesList.clear();
+        // Don't clear devicesList - keep scan results for reconnection
+        // devicesList.clear();
         lastResponse = '';
         responseHistory.clear();
       });
     }
+    print('✅ State reset complete');
   }
 
   String _getBluetoothStateMessage() {
