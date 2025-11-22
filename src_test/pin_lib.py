@@ -6,10 +6,10 @@ line  12: "P8_12"
 line  13: "P8_11" Left wheel control
 line  14: "P8_16"
 line  15: "P8_15"
-line  28: "P9_12"
+line  28: "P9_14" Lamps
 gpiochip3:
-line  27: "P8_17" Right wheel control
-line  26: "P8_14"
+line  27: "P8_17"
+line  26: "P8_14" Right wheel control
 """
 from periphery import GPIO
 import time

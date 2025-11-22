@@ -9,10 +9,8 @@ import signal
 import sys
 
 def signal_handler(sig, frame):
-    print('\n\nShutting down gracefully...')
-    if 'bt' in globals():
-        bt.cleanup()
-    sys.exit(0)
+    print('\nShutting down gracefully...')
+    bt.stop_server()
 
 # Set up signal handler for graceful shutdown
 signal.signal(signal.SIGINT, signal_handler)
@@ -30,7 +28,7 @@ bt = BT()
 # Create cont Controller
 cont = WheelController(pin=pin, pwm=pwm)
 
-bt.debug_bluetooth_status()
+"""bt.debug_bluetooth_status()  """
 
 # Delegate functions
 bt.lamps_control = pwm.illumination
