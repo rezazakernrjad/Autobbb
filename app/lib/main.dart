@@ -255,7 +255,7 @@ class _BBBControllerState extends State<BBBController> {
 
       // Longer delay to let BBB GATT services become fully available
       print('⏳ Waiting for GATT services to become available...');
-      await Future.delayed(const Duration(seconds: 3));
+      await Future.delayed(const Duration(seconds: 6));
       
       // Check if still connected
       var connectionState = await device.connectionState.first;
