@@ -1,0 +1,60 @@
+## Installation BlueZ  Steps:
+# 1. Install bluez-peripheral
+sudo pip3 install bluez-peripheral
+
+# 2. Add your user to bluetooth group (if not already done)
+sudo usermod -aG bluetooth debian  # or your username
+sudo usermod -aG bluetooth root
+
+# 3. Logout and login again (or reboot)
+sudo reboot
+
+# 4. Make sure BlueZ is running
+sudo systemctl status bluetooth
+
+## some usefull cimmands:
+ 1. Check BlueZ status
+sudo systemctl status bluetooth
+
+# 2. Restart BlueZ
+sudo systemctl restart bluetooth
+
+# 3. Check if adapter is visible
+hciconfig hci0
+
+# 4. Power on the adapter
+sudo hciconfig hci0 up
+
+# 5. Remove any existing connections
+sudo hciconfig hci0 reset
+
+# 6. Check D-Bus
+dbus-send --system --print-reply --dest=org.bluez / org.freedesktop.DBus.Introspectable.Introspect
+
+## To activate bluetooth in experimental mode:
+# 1. Edit the service file
+sudo nano /lib/systemd/system/bluetooth.service
+```
+
+Change this line:
+```
+ExecStart=/usr/libexec/bluetooth/bluetoothd --experimental --experimental
+```
+
+To this:
+```
+ExecStart=/usr/sbin/bluetoothd --experimental
+
+To get stable connection On your BBB, check /etc/bluetooth/main.conf and ensure these settings:
+sudo nano /etc/bluetooth/main.conf
+
+[General]
+# Disable pairing requirement for BLE
+Privacy = off
+JustWorksRepairing = always
+Class = 0x000000
+
+[GATT]
+# Increase ATT timeout
+Timeout = 30000
+Cache = no
