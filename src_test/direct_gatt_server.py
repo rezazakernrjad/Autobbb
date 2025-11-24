@@ -295,9 +295,10 @@ class BLEServer:
         self.adapter_props = dbus.Interface(obj, DBUS_PROP_IFACE)
         self.adapter_obj = obj
         
-        # Ensure adapter is powered on
+        # Ensure adapter is powered on and properly configured
         self.adapter_props.Set('org.bluez.Adapter1', 'Powered', dbus.Boolean(True))
         self.adapter_props.Set('org.bluez.Adapter1', 'Discoverable', dbus.Boolean(True))
+        self.adapter_props.Set('org.bluez.Adapter1', 'Pairable', dbus.Boolean(False))  # Don't require pairing
         
         print(f"✅ Adapter powered on: {adapter_path}")
         
@@ -491,12 +492,14 @@ class BLEServer:
             if is_connected:
                 print(f"📱 Device connected: {path}")
                 self.connected_device = path
-                self._start_rssi_monitoring()
+                # Give services time to stabilize before client discovers them
+                GLib.timeout_add(1000, lambda: self._start_rssi_monitoring())
             else:
                 print(f"📴 Device disconnected: {path}")
-                self.connected_device = None
-                self._stop_rssi_monitoring()
-                self._emergency_stop()  # Safety: stop on disconnect
+                if self.connected_device == path:
+                    self.connected_device = None
+                    self._stop_rssi_monitoring()
+                    self._emergency_stop()  # Safety: stop on disconnect
 
     def _start_rssi_monitoring(self):
         """Start monitoring RSSI"""
@@ -542,6 +545,11 @@ class BLEServer:
 
     def _register_app_cb(self):
         print('✅ GATT application registered successfully')
+        print(f'   Service path: {self.app.get_path()}')
+        print(f'   Services: {len(self.app.services)}')
+        for service in self.app.services:
+            print(f'   - Service UUID: {service.uuid}')
+            print(f'     Characteristics: {len(service.characteristics)}')
 
     def _register_app_error_cb(self, error):
         print(f'❌ Failed to register GATT application: {error}')
@@ -558,6 +566,17 @@ class BLEServer:
         print(f'Device Name: AutoBBB')
         print('Waiting for iPad to connect...')
         print('='*50)
+        
+        # Debug: Verify services are accessible via D-Bus
+        try:
+            managed = self.app.GetManagedObjects()
+            print(f'\n🔍 Debug: Managed objects count: {len(managed)}')
+            for path, interfaces in managed.items():
+                print(f'  Path: {path}')
+                for iface, props in interfaces.items():
+                    print(f'    Interface: {iface}')
+        except Exception as e:
+            print(f'⚠️ Could not verify managed objects: {e}')
 
     def _register_ad_error_cb(self, error):
         print(f'❌ Failed to register advertisement: {error}')
