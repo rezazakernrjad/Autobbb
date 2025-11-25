@@ -40,8 +40,8 @@ class WheelController:
         self.pwm.set_right_duty(self.speed_right)
 
     def turn_right(self, angle):
-        self.speed_left = self.speed - angle
-        self.speed_right = self.speed + angle       
+        self.speed_left = self.speed + angle
+        self.speed_right = self.speed - angle       
         print(f"DEBUG: speed_left={self.speed_left}, speed_right={self.speed_right}")
         if self.speed_left > 100:
             self.speed_left = 100
