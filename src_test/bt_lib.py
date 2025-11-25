@@ -11,6 +11,7 @@ import dbus.mainloop.glib
 from gi.repository import GLib
 import sys
 import time
+import signal
 
 # D-Bus constants
 BLUEZ_SERVICE = 'org.bluez'
@@ -19,7 +20,7 @@ DBUS_OM_IFACE = 'org.freedesktop.DBus.ObjectManager'
 DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
 GATT_SERVICE_IFACE = 'org.bluez.GattService1'
 GATT_CHRC_IFACE = 'org.bluez.GattCharacteristic1'
-GATT_DESC_IFACE = 'org.bluez.GattDescriptor1'
+GATT_DESC_IFACE = 'org.freedesktop.DBus.Descriptor1'
 LE_ADVERTISING_MANAGER_IFACE = 'org.bluez.LEAdvertisingManager1'
 LE_ADVERTISEMENT_IFACE = 'org.bluez.LEAdvertisement1'
 
@@ -265,6 +266,7 @@ class BLEServer:
         self.tx_char = None
         self.connected_device = None
         self.rssi_timer = None
+        self.is_shutting_down = False
         
         # Control function callbacks
         self.start_control = None
@@ -409,8 +411,10 @@ class BLEServer:
     def _emergency_stop(self):
         """Emergency stop - immediately halt all motion"""
         print("🛑 EMERGENCY STOP")
-        self.move_forward(0)
-        self.turn_right(0)
+        if self.move_forward:
+            self.move_forward(0)
+        if self.turn_right:
+            self.turn_right(0)
 
     def _on_device_connected(self, interface, changed, invalidated, path):
         """Handle device connection/disconnection"""
@@ -425,7 +429,7 @@ class BLEServer:
                 self.connected_device = path
                 self._start_rssi_monitoring()
             else:
-                print(f"📴 Device disconnected: {path}")
+                print(f"🔴 Device disconnected: {path}")
                 self.connected_device = None
                 self._stop_rssi_monitoring()
                 self._emergency_stop()  # Safety: stop on disconnect
@@ -501,13 +505,46 @@ class BLEServer:
             return self.tx_char.send_data(data)
         return False
 
+    def shutdown(self):
+        """Clean shutdown"""
+        if self.is_shutting_down:
+            return
+            
+        self.is_shutting_down = True
+        print('\n👋 Shutting down gracefully...')
+        
+        # Stop RSSI monitoring
+        self._stop_rssi_monitoring()
+        
+        # Emergency stop
+        self._emergency_stop()
+        
+        # Quit main loop
+        if self.mainloop:
+            self.mainloop.quit()
+        
+        # Give it a moment to clean up
+        time.sleep(0.5)
+        
+        print('✅ Shutdown complete')
+        sys.exit(0)
+
     def run(self):
         """Start the server"""
         self.mainloop = GLib.MainLoop()
+        
+        # Setup signal handlers for graceful shutdown
+        def signal_handler(signum, frame):
+            print(f'\n⚠️ Received signal {signum}')
+            self.shutdown()
+        
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+        
         try:
             self.mainloop.run()
         except KeyboardInterrupt:
-            print('\n👋 Shutting down...')
-            self._emergency_stop()
-            self._cleanup_hardware()
-            self.mainloop.quit()
+            self.shutdown()
+        except Exception as e:
+            print(f'❌ Error in main loop: {e}')
+            self.shutdown()
