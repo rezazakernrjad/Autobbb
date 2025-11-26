@@ -368,7 +368,7 @@ class _BBBControllerState extends State<BBBController> {
                   }, onError: (error) {
                     print('❌ TX subscription error: $error');
                   });
-                  
+                  sendCommand("illumination 2"); // Turn on lamps on connect
                   print('✅ Subscribed to TX notifications');
                 } catch (e) {
                   print('⚠️ Failed to subscribe to TX notifications: $e');
