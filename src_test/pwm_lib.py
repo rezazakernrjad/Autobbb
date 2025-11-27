@@ -113,7 +113,7 @@ class PWMController:
             time.sleep(0.1)
             self.set_lamps_intensity(100)
             time.sleep(1)
-            self.set_lamps_intensity(50)
+            self.set_lamps_intensity(0)
 
     def start_pwm(self):
         try:
