@@ -883,12 +883,12 @@ class _BBBControllerState extends State<BBBController> {
                     child: const Text('BRAKE', style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
                   ElevatedButton(
-                    onPressed: () => sendCommand("status"),
+                    onPressed: () => sendCommand("reverse"),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blue,
                       foregroundColor: Colors.white,
                     ),
-                    child: const Text('STATUS', style: TextStyle(fontWeight: FontWeight.bold)),
+                    child: const Text('REVERSE', style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
                   ElevatedButton(
                     onPressed: () => sendCommand("illumination 1"),
@@ -902,14 +902,26 @@ class _BBBControllerState extends State<BBBController> {
               ),
 
               const SizedBox(height: 20),
-              
-              ElevatedButton(
-                onPressed: _disconnect,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('DISCONNECT'),
+              Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  ElevatedButton(
+                    onPressed: _disconnect,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      foregroundColor: const Color.fromARGB(255, 31, 2, 2),
+                    ),
+                    child: const Text('DISCONNECT'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => sendCommand("status"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color.fromARGB(255, 0, 30, 255),
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('STATUS'),
+                  ),
+                ],
               ),
             ],
           ],
