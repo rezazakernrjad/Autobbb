@@ -102,6 +102,18 @@ class PWMController:
                 duty = int(i * 100 / steps)
                 self.set_lamps_intensity(duty)
                 time.sleep(step_time)
+        elif animation == 2:
+            self.set_lamps_intensity(100)  # Start fully on
+            time.sleep(0.1)
+            self.set_lamps_intensity(0)    # Then off
+            time.sleep(0.1)
+            self.set_lamps_intensity(100)  # Start fully on
+            time.sleep(0.1)
+            self.set_lamps_intensity(0)    # Then off
+            time.sleep(0.1)
+            self.set_lamps_intensity(100)
+            time.sleep(1)
+            self.set_lamps_intensity(0)
 
     def start_pwm(self):
         try:
