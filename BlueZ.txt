@@ -58,3 +58,43 @@ Class = 0x000000
 # Increase ATT timeout
 Timeout = 30000
 Cache = no
+## -----------------
+To make the software auto executable after Linux is up'n running:
+sudo nano /etc/systemd/system/autobbb.service
+[Unit]
+Description=AutoBBB Bluetooth Controller
+After=network.target bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=reza
+Group=reza
+WorkingDirectory=/home/reza/Autobbb/src_test
+
+ExecStart=/home/reza/Autobbb/ble_env/bin/python /home/reza/Autobbb/src_test/auto_main.py
+
+Restart=on-failure
+RestartSec=5
+
+Environment="PYTHONUNBUFFERED=1"
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=autobbb
+
+[Install]
+WantedBy=multi-user.target
+
+# then run:
+# Reload systemd
+sudo systemctl daemon-reload
+
+# Start the service
+sudo systemctl start autobbb.service
+
+# Check status
+sudo systemctl status autobbb.service
+
+# View logs
+sudo journalctl -u autobbb.service -f
