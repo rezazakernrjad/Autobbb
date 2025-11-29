@@ -27,6 +27,7 @@ class WheelController:
         self.speed_right = 0
         self.speed = 0
         self.angle = 0
+        self.direction = "forward"
 
     def turn_left(self, angle):
         self.speed_left = self.speed_left - angle
@@ -52,12 +53,17 @@ class WheelController:
         self.angle = angle
 
     def turn_end(self):
+        if self.direction == "reverse":
+            self.reverse()
+            return
+        
         self.pwm.set_all_wheels_duty(self.speed)
         self.speed_right = self.speed
         self.speed_left = self.speed
         print("CONT: turn ended, resuming forward movement")
 
     def forward(self, speed):
+        self.direction = "forward"
         self.pin.set_left_control("forward")
         self.pin.set_right_control("forward")
         self.speed = speed
@@ -68,6 +74,7 @@ class WheelController:
         print(f"CONT: move forward at speed {speed}")
 
     def reverse(self):
+        self.direction = "reverse"
         print("CONT: move reverse")
         self.pwm.set_all_wheels_duty(0)
         self.pin.set_left_control("reverse")
