@@ -30,6 +30,7 @@ class WheelController:
         self.direction = "forward"
 
     def turn_left(self, angle):
+        self.pin.illumination("turn_left")
         self.speed_left = self.speed_left - angle
         self.speed_right = self.speed_right + angle
         print (f"DEBUG: speed_left={self.speed_left}, speed_right={self.speed_right}")
@@ -41,6 +42,7 @@ class WheelController:
         self.pwm.set_right_duty(self.speed_right)
 
     def turn_right(self, angle):
+        self.pin.illumination("turn_right")
         self.speed_left = self.speed + angle
         self.speed_right = self.speed - angle
         print(f"DEBUG: speed_left={self.speed_left}, speed_right={self.speed_right}")
@@ -53,6 +55,7 @@ class WheelController:
         self.angle = angle
 
     def turn_end(self):
+        self.pin.illumination("forward")
         if self.direction == "reverse":
             self.reverse()
             return
@@ -64,6 +67,7 @@ class WheelController:
 
     def forward(self, speed):
         self.direction = "forward"
+        self.pin.illumination("forward")
         self.pin.set_left_control("forward")
         self.pin.set_right_control("forward")
         self.speed = speed
@@ -81,6 +85,7 @@ class WheelController:
         self.pin.set_right_control("reverse")
 
     def brake(self):
+        self.pin.illumination("brake")
         self.pwm.set_left_duty(0)
         self.pwm.set_right_duty(0)
         self.pin.set_left_control("forward")

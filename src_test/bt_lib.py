@@ -365,16 +365,18 @@ class BLEServer:
             
             elif cmd == "illumination":
                 print(f"Setting illumination to {value}")
-                self.lamps_control(20, value)
+                self.lamps_control("brake")
                 self.illumination_level = value
                 return f"✓ Illumination effect {value}"
             
             elif cmd == "turn_left":
+                self.lamps_control("turn_left")
                 self.turn_left(value)
                 self.turn_angle = value
                 return f"✓ turn left {value}"
             
             elif cmd == "turn_right":
+                self.lamps_control("turn_right")
                 self.turn_right(value)
                 self.turn_angle = value
                 return f"✓ turn right {value}"
@@ -384,6 +386,7 @@ class BLEServer:
                 return "✓ turn end"
             
             elif cmd == "forward":
+                self.lamps_control("forward")
                 self.move_forward(value)
                 self.motor_speed = value
                 return f"✓ forward {value}"
@@ -393,6 +396,7 @@ class BLEServer:
                 return "✓ reverse"
             
             elif cmd == "brake":
+                self.lamps_control("brake")
                 self.brake_movement()
                 return "✓ brake"
             

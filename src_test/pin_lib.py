@@ -6,10 +6,12 @@ line  12: "P8_12"
 line  13: "P8_11" Left wheel control
 line  14: "P8_16"
 line  15: "P8_15"
-line  28: "P9_14" Lamps
+line  18: "P9_14" Lamps Left - pwm9_14
+line  28: "P9_12" left_lamp
 gpiochip3:
 line  27: "P8_17"
 line  26: "P8_14" Right wheel control
+line  30: "P9_11" right_lamp
 """
 from periphery import GPIO
 import time
@@ -17,6 +19,7 @@ import time
 class PIN:
     def __init__(self):
         print("Run Pin Control")
+        self.illumination_state = "off"
         try:
             self.left_wheel = GPIO("/dev/gpiochip0", 13, "out")
             print("Left wheel GPIO initialized successfully")
@@ -24,6 +27,16 @@ class PIN:
             print(f"❌ Error initializing left wheel GPIO: {e}") 
         try:
             self.right_wheel = GPIO("/dev/gpiochip3", 26, "out")
+            print("Right wheel GPIO initialized successfully")
+        except Exception as e:
+            print(f"❌ Error initializing right wheel GPIO: {e}")
+        try:
+            self.left_lamp = GPIO("/dev/gpiochip0", 28, "out")
+            print("Left wheel GPIO initialized successfully")
+        except Exception as e:
+            print(f"❌ Error initializing left wheel GPIO: {e}") 
+        try:
+            self.right_lamp = GPIO("/dev/gpiochip3", 30, "out")
             print("Right wheel GPIO initialized successfully")
         except Exception as e:
             print(f"❌ Error initializing right wheel GPIO: {e}")
@@ -46,3 +59,30 @@ class PIN:
                 self.right_wheel.write(True)
         except Exception as e:
             print("❌ Error in set_right_control:", e)
+
+    def illumination(self, state):
+        try:
+            print(f"PIN: Set illumination to {state}")
+            self.illumination_state = state
+            if self.illumination_state  == "forward":
+                self.left_lamp.write(True)
+                self.right_lamp.write(True)
+            elif self.illumination_state  == "brake":
+                self.left_lamp.write(False)
+                self.right_lamp.write(False)
+                time.sleep(0.5)
+                self.left_lamp.write(True)
+                self.right_lamp.write(True)
+                time.sleep(0.5)
+                self.left_lamp.write(False)
+                self.right_lamp.write(False)
+            elif self.illumination_state  == "turn_left":
+                print("PIN: TURN LEFT ILLUMINATION")
+                self.left_lamp.write(True)
+                self.right_lamp.write(False)
+            elif self.illumination_state == "turn_right":
+                print("PIN: TURN RIGHT ILLUMINATION")
+                self.left_lamp.write(False)
+                self.right_lamp.write(True)
+        except Exception as e:
+            print("❌ Error in illumination:", e)

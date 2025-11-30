@@ -31,7 +31,7 @@ cont = WheelController(pin=pin, pwm=pwm)
 """bt.debug_bluetooth_status()  """
 
 # Delegate functions
-bt.lamps_control = pwm.illumination
+bt.lamps_control = pin.illumination
 bt.turn_left = cont.turn_left
 bt.turn_right = cont.turn_right
 bt.turn_end = cont.turn_end
