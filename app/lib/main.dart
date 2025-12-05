@@ -899,6 +899,22 @@ class _BBBControllerState extends State<BBBController> {
                     ),
                     child: const Text('LAMPS', style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
+                  ElevatedButton(
+                    onPressed: _disconnect,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      foregroundColor: const Color.fromARGB(255, 31, 2, 2),
+                    ),
+                    child: const Text('DISCONNECT'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => sendCommand("status"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color.fromARGB(255, 0, 30, 255),
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('STATUS'),
+                  ),
                 ],
               ),
               
@@ -915,15 +931,14 @@ class _BBBControllerState extends State<BBBController> {
                         value: pwmValue,
                         min: 0,
                         max: 100,
+                        quarterTurns: 3,
                         thickness: 30,
                         onChanged: (value) {
                           setState(() => pwmValue = value);
                           if (value < 50) {
                             sendCommand("reverse");
-                          } else if (value > 50) {
+                          } else if (value >= 50) {
                             sendCommand("forward ${value.round()}");
-                          } else if (value == 50){
-                            sendCommand("brake");
                           }
                         },
                         onChangeEnd: (value){
@@ -947,6 +962,7 @@ class _BBBControllerState extends State<BBBController> {
                         value: turnValue,
                         min: 0,
                         max: 100,
+                        quarterTurns: 0,
                         thickness: 30,
                         onChanged: (value) {
                           setState(() => turnValue = value);
@@ -972,7 +988,7 @@ class _BBBControllerState extends State<BBBController> {
                   ),
                 ],
               ),
-              const SizedBox(height: 20),
+              /* const SizedBox(height: 20),
               Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
@@ -993,7 +1009,7 @@ class _BBBControllerState extends State<BBBController> {
                     child: const Text('STATUS'),
                   ),
                 ],
-              ),
+              ), */
             ],
           ],
         ),
@@ -1005,7 +1021,8 @@ class VerticalSlider extends StatelessWidget {
   final double value;
   final double min;
   final double max;
-  final int divisions = 100;
+  final int divisions;
+  final int quarterTurns;
   final ValueChanged<double> onChanged;
   final ValueChanged<double>? onChangeEnd;
   final double thickness;
@@ -1019,7 +1036,8 @@ class VerticalSlider extends StatelessWidget {
     this.onChangeEnd,
     this.min = 0.0,
     this.max = 100.0,
-    divisions = 100,
+    this.divisions = 100,
+    this.quarterTurns = 0,
     this.thickness = 100.0,
     this.activeColor = Colors.blue,
     this.inactiveColor = Colors.grey,
@@ -1031,7 +1049,7 @@ class VerticalSlider extends StatelessWidget {
       width: thickness + 100, // Extra space for thumb
       height: 200,
       child: RotatedBox(
-        quarterTurns: 3,
+        quarterTurns: quarterTurns,
         child: SliderTheme(
           data: SliderTheme.of(context).copyWith(
             trackHeight: thickness,
